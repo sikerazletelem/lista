@@ -1,7 +1,11 @@
 // Offline-first: az app fájljait az első betöltéskor a telefon tárolja.
 // Verziót emelve (CACHE) a régi fájlok lecserélődnek.
-const CACHE = "hid-lista-v1";
-const FILES = ["./", "index.html", "style.css", "store.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+// v2: bekerült a szinkron (sync.js, hid-crypto.js, firebase-config.js). A nagy,
+// online-hoz szükséges Firebase-fájlokat (vendor/) szándékosan nem előtöltjük itt —
+// azok az első sikeres online látogatáskor kerülnek gyorsítótárba a lenti fetch-kezelővel,
+// hogy egy hibás letöltés ne akassza meg a telepítést.
+const CACHE = "hid-lista-v2";
+const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Híd — kulcs beállítása</title>
+<style>
+  :root { --bg:#faf9f5; --card:#fff; --ink:#1f1e1a; --dim:#6b6a63; --line:#e3e0d5; --acc:#2f5d50; --bad:#a3362b; --ok:#2f6b3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1a1a17; --card:#242420; --ink:#ecebe4; --dim:#a09f96; --line:#3a3a34; --acc:#7fbfa9; --bad:#e58a80; --ok:#8fd19a; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:600px; margin:0 auto; padding:16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin:0 0 16px; }
+  h1 { font-size:22px; margin:8px 0 4px; } h2 { font-size:17px; margin:0 0 8px; }
+  p.hint { color:var(--dim); margin:0 0 12px; font-size:14px; }
+  label { display:block; font-size:14px; color:var(--dim); margin:10px 0 4px; }
+  input { width:100%; box-sizing:border-box; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit; }
+  button { margin:10px 8px 0 0; padding:10px 16px; border:0; border-radius:8px; background:var(--acc); color:#fff; font:inherit; cursor:pointer; }
+  button.alt { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button.danger { background:var(--bad); }
+  .out { margin-top:12px; font-size:14px; white-space:pre-wrap; word-break:break-all; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .rec { font:18px/1.5 ui-monospace, Consolas, monospace; padding:12px; border:2px dashed var(--acc); border-radius:8px; word-break:break-all; margin-top:8px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Híd — a titkosítási kulcs beállítása</h1>
+  <p class="hint">Ez egy egyszeri, laptopos lépés. Itt jön létre a kulcspár, amivel a telefon titkosítani, a Kiértékelő pedig visszafejteni tud. Ezt az oldalt nem kell megjegyezni, nem kell rendszeresen használni.</p>
+
+  <section id="loginSec">
+    <h2>1. Bejelentkezés</h2>
+    <p class="hint">Ugyanaz az e-mail és jelszó, amit a Firebase Authentication „Users” fülén létrehoztál.</p>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="pw">Jelszó</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="loginBtn">Belépés</button>
+    <div class="out" id="loginOut"></div>
+  </section>
+
+  <section id="statusSec" hidden>
+    <h2>2. Állapot</h2>
+    <div class="out" id="statusOut">Ellenőrzés…</div>
+  </section>
+
+  <section id="createSec" hidden>
+    <h2>3. Kulcs létrehozása</h2>
+    <p class="hint">Ezt csak egyszer kell megtenni. A jelszót írd le biztos helyre — ez fogja feloldani a Kiértékelőt.</p>
+    <label for="pw1">Titkosítási jelszó (legalább 10 karakter)</label>
+    <input id="pw1" type="password" autocomplete="new-password">
+    <label for="pw2">Jelszó még egyszer</label>
+    <input id="pw2" type="password" autocomplete="new-password">
+    <button id="createBtn">Kulcs létrehozása és feltöltése</button>
+    <div class="out" id="createOut"></div>
+    <div id="recWrap" hidden>
+      <p class="hint"><strong>Mentsd el a helyreállítási kulcsot</strong> (jelszókezelő vagy papír). Ha a jelszót elfelejted, ezzel tudsz újat beállítani. Ez a kulcs csak most jelenik meg.</p>
+      <div class="rec" id="recKey"></div>
+      <button id="dl" class="alt">Kulcsfájl letöltése (hid-kulcs.json)</button>
+    </div>
+  </section>
+
+  <section id="existingSec" hidden>
+    <h2>3. A kulcs már létezik</h2>
+    <p class="hint" id="createdInfo"></p>
+    <label for="pw3">Jelszó (ellenőrzéshez)</label>
+    <input id="pw3" type="password" autocomplete="current-password">
+    <button id="verifyBtn">Feloldás kipróbálása</button>
+    <button id="dl2" class="alt">Kulcsfájl letöltése (biztonsági mentés)</button>
+    <div class="out" id="verifyOut"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer">Elfelejtett jelszó — új jelszó beállítása a helyreállítási kulccsal</summary>
+      <label for="recIn">Helyreállítási kulcs</label>
+      <input id="recIn" autocomplete="off">
+      <label for="pw4">Új jelszó</label>
+      <input id="pw4" type="password" autocomplete="new-password">
+      <button id="resetBtn">Új jelszó mentése</button>
+      <div class="out" id="resetOut"></div>
+    </details>
+  </section>
+</main>
+<script src="vendor/firebase/firebase-app-compat.js"></script>
+<script src="vendor/firebase/firebase-auth-compat.js"></script>
+<script src="vendor/firebase/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="hid-crypto.js"></script>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const say = (el, t, cls) => { el.className = "out " + (cls || ""); el.textContent = t; };
+
+  firebase.initializeApp(window.FIREBASE_CONFIG);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  let uid = null, keysRef = null, keyfile = null;
+
+  $("#loginBtn").onclick = async () => {
+    const out = $("#loginOut");
+    say(out, "Belépés…");
+    try {
+      await auth.signInWithEmailAndPassword($("#email").value.trim(), $("#pw").value);
+    } catch (e) { say(out, "Hibás e-mail vagy jelszó.", "bad"); }
+  };
+
+  auth.onAuthStateChanged(async (user) => {
+    if (!user) return;
+    uid = user.uid;
+    keysRef = db.collection("users").doc(uid).collection("meta").doc("keys");
+    $("#loginSec").hidden = true;
+    $("#statusSec").hidden = false;
+    say($("#statusOut"), "Bejelentkezve: " + user.email + "\nEllenőrzés…");
+    try {
+      const snap = await keysRef.get();
+      if (snap.exists && snap.data().publicKey) {
+        keyfile = snap.data().keyfile;
+        say($("#statusOut"), "Bejelentkezve: " + user.email, "ok");
+        $("#existingSec").hidden = false;
+        $("#createdInfo").textContent = "A kulcs létrehozva: " + new Date(snap.data().createdAt).toLocaleString("hu-HU");
+      } else {
+        say($("#statusOut"), "Bejelentkezve: " + user.email + "\nMég nincs kulcs ehhez a fiókhoz.", "ok");
+        $("#createSec").hidden = false;
+      }
+    } catch (e) {
+      say($("#statusOut"), "Nem sikerült elérni az adatbázist: " + e.message, "bad");
+    }
+  });
+
+  $("#createBtn").onclick = async () => {
+    const out = $("#createOut");
+    if ($("#pw1").value !== $("#pw2").value) return say(out, "A két jelszó nem egyezik.", "bad");
+    try {
+      say(out, "Kulcs generálása…");
+      const r = await HidCrypto.createKeys($("#pw1").value);
+      await keysRef.set({ publicKey: r.publicKey, keyfile: r.keyfile, createdAt: Date.now() });
+      keyfile = r.keyfile;
+      $("#recKey").textContent = r.recoveryKey;
+      $("#recWrap").hidden = false;
+      say(out, "Kész. A telefon mostantól tud majd titkosítva küldeni.", "ok");
+      $("#dl").onclick = () => downloadKeyfile(r.keyfile);
+    } catch (e) { say(out, e.message, "bad"); }
+  };
+
+  $("#verifyBtn").onclick = async () => {
+    const out = $("#verifyOut");
+    try {
+      const t0 = performance.now();
+      await HidCrypto.unlockWithPassword(keyfile, $("#pw3").value);
+      say(out, "A jelszó jó, a feloldás " + Math.round(performance.now() - t0) + " ms alatt megtörtént.", "ok");
+    } catch (e) { say(out, e.message, "bad"); }
+  };
+  $("#dl2").onclick = () => downloadKeyfile(keyfile);
+
+  $("#resetBtn").onclick = async () => {
+    const out = $("#resetOut");
+    try {
+      const updated = await HidCrypto.resetPassword(keyfile, $("#recIn").value, $("#pw4").value);
+      await keysRef.update({ keyfile: updated });
+      keyfile = updated;
+      say(out, "Az új jelszó mentve.", "ok");
+    } catch (e) { say(out, e.message, "bad"); }
+  };
+
+  function downloadKeyfile(kf) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(kf)], { type: "application/json" }));
+    a.download = "hid-kulcs.json"; a.click();
+  }
+</script>
+</body>
+</html>

@@ -53,14 +53,18 @@ function renderBlock(k) {
 }
 const renderAll = () => SECTIONS.forEach((s) => renderBlock(s.k));
 
-// Módosítás: memória + IndexedDB. A `push` pont a jövőbeli szinkron csatlakozási helye.
+// Módosítás: memória + IndexedDB + (ha lehet) felhő. A syncPush hívás a szinkron csatlakozási helye.
 function save(item) {
   const i = items.findIndex((x) => x.id === item.id);
   if (i >= 0) items[i] = item; else items.push(item);
   renderBlock(item.block);
   setStatus("Mentés…");
-  Store.put(item).then(() => setStatus("Mentve a telefonon")).catch(() => setStatus("A mentés nem sikerült — próbáld újra."));
+  Store.put(item).then(() => { setStatus("Mentve a telefonon"); syncPush(item); }).catch(() => setStatus("A mentés nem sikerült — próbáld újra."));
 }
+
+const hasSync = () => typeof Sync !== "undefined";
+function syncPush(item) { try { if (hasSync()) Sync.push(item); } catch (e) {} }
+function syncFlush() { try { if (hasSync()) Sync.flushPending((id) => items.find((x) => x.id === id)); } catch (e) {} }
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-act]");
@@ -77,7 +81,7 @@ document.addEventListener("click", (e) => {
     const changed = live(k).filter((i) => i.done).map((i) => ({ ...i, deleted: true, updatedAt: now }));
     changed.forEach((c) => { items[items.findIndex((x) => x.id === c.id)] = c; });
     renderBlock(k);
-    Store.putMany(changed).then(() => setStatus("Mentve a telefonon")).catch(() => setStatus("A mentés nem sikerült — próbáld újra."));
+    Store.putMany(changed).then(() => { setStatus("Mentve a telefonon"); changed.forEach(syncPush); }).catch(() => setStatus("A mentés nem sikerült — próbáld újra."));
   }
 });
 
@@ -91,11 +95,64 @@ document.addEventListener("input", (e) => {
   items[items.findIndex((x) => x.id === it.id)] = updated;
   setStatus("Mentés…");
   clearTimeout(editTimer);
-  editTimer = setTimeout(() => Store.put(updated).then(() => setStatus("Mentve a telefonon")).catch(() => setStatus("A mentés nem sikerült — próbáld újra.")), 400);
+  editTimer = setTimeout(() => Store.put(updated).then(() => { setStatus("Mentve a telefonon"); syncPush(updated); }).catch(() => setStatus("A mentés nem sikerült — próbáld újra.")), 400);
 });
 
 shell();
 renderAll();
-Store.all().then((all) => { items = all; renderAll(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
+Store.all().then((all) => { items = all; renderAll(); syncFlush(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+// --- Szinkron: kicsi bejelentkezési sáv a fejléc alatt ---
+let syncLoginOpen = false;
+function renderSync(state) {
+  const el = $("#sync");
+  if (!hasSync()) { el.innerHTML = ""; return; }
+  if (state && state.loggedIn) {
+    syncLoginOpen = false;
+    el.innerHTML = `Bejelentkezve: ${esc(state.email)} · <button data-sync="out">Kijelentkezés</button>`;
+    return;
+  }
+  if (!syncLoginOpen) {
+    el.innerHTML = `Csak ezen a telefonon tárolva · <a href="#" class="link" data-sync="open">Bejelentkezés a szinkronhoz</a>`;
+    return;
+  }
+  el.innerHTML = `
+    <form id="syncForm">
+      <input type="email" name="email" placeholder="E-mail" autocomplete="username" required>
+      <input type="password" name="password" placeholder="Jelszó" autocomplete="current-password" required>
+      <button type="submit">Belépés</button>
+    </form>`;
+  $("#syncForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await Sync.login(f.get("email").trim(), f.get("password"));
+      syncFlush();
+    } catch (err) {
+      const known = {
+        "auth/invalid-credential": "Hibás e-mail vagy jelszó.",
+        "auth/invalid-email": "Érvénytelen e-mail cím.",
+        "auth/user-disabled": "Ez a fiók le van tiltva.",
+        "auth/too-many-requests": "Túl sok próbálkozás — várj egy kicsit, és próbáld újra.",
+        "auth/network-request-failed": "Nincs internetkapcsolat.",
+      };
+      $("#sync").insertAdjacentHTML("beforeend", `<div class="err">${esc(known[err.code] || "A bejelentkezés nem sikerült.")}</div>`);
+    }
+  });
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-sync]");
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.sync === "open") { syncLoginOpen = true; renderSync({ loggedIn: false }); }
+  else if (t.dataset.sync === "out") { Sync.logout(); }
+});
+window.addEventListener("online", syncFlush);
+try {
+  if (hasSync()) {
+    Sync.init((state) => renderSync(state));
+    renderSync({ loggedIn: Sync.isLoggedIn(), email: Sync.email() });
+  }
+} catch (e) {}

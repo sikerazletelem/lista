@@ -17,9 +17,16 @@
     <h1>Híd Jegyzet</h1>
   </div>
   <div class="status" id="status" aria-live="polite"></div>
+  <div class="sync" id="sync"></div>
   <div class="blocks" id="blocks"></div>
 </main>
 <script src="store.js"></script>
+<script src="vendor/firebase/firebase-app-compat.js"></script>
+<script src="vendor/firebase/firebase-auth-compat.js"></script>
+<script src="vendor/firebase/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="hid-crypto.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
