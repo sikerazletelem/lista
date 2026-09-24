@@ -6,7 +6,8 @@
 // hogy egy hibás letöltés ne akassza meg a telepítést.
 // v3: a sync.js minden még fel nem küldött tételt pótol (a szinkron előtti régieket is).
 // v4: a tételek sorrendje a fogantyúval átrendezhető (order mező).
-const CACHE = "hid-lista-v4";
+// v5: csak a lista saját fájljait tárolja (a Firebase-t és a Kiértékelőt nem).
+const CACHE = "hid-lista-v5";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -18,6 +19,9 @@ self.addEventListener("activate", (e) => {
 });
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  // Csak a lista saját fájljai: a Firebase-kéréseket és a Kiértékelő mappáját nem tároljuk.
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin || url.pathname.includes("/kiertekelo/")) return;
   e.respondWith(
     caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
       const copy = res.clone();
