@@ -157,8 +157,24 @@ svg.icon-sm { width: 13px; height: 13px; }
 .wish.done { background: var(--surface-2); }
 .wish .grip { flex: none; width: 22px; height: 28px; margin: 0 -6px 0 -4px; padding: 0; display: grid; place-items: center; background: none; border: none; color: var(--faint); cursor: grab; touch-action: none; }
 .wish .grip svg.icon { width: 16px; height: 16px; }
-.wish.dragging { border-color: var(--c-blue); box-shadow: 0 4px 14px rgba(20,30,28,.15); position: relative; z-index: 1; }
+.wish { position: relative; will-change: transform; }
+.wish.shifting { transition: transform .2s cubic-bezier(.2,.7,.3,1); }
+.wish.settling { transition: transform .18s cubic-bezier(.2,.7,.3,1); }
+.wish.dragging { z-index: 2; border-color: var(--c-blue); background: var(--surface); box-shadow: 0 10px 28px rgba(20,30,28,.18), 0 2px 6px rgba(20,30,28,.08); }
 .wish.dragging .grip { cursor: grabbing; color: var(--c-blue); }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; }
+@media (prefers-reduced-motion: reduce) { .wish.shifting, .wish.settling { transition: none; } }
+
+.price { display: flex; align-items: center; gap: 4px; flex: none; width: 118px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--faint); cursor: text; }
+.price:focus-within { border-color: var(--c-blue); }
+.wish .price input { width: 100%; min-width: 0; text-align: right; font-size: 13px; background: transparent; border: none; outline: none; color: var(--ink); -moz-appearance: textfield; }
+.price input::-webkit-outer-spin-button, .price input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wish.done .price input { color: var(--faint); text-decoration: line-through; }
+.wish-total { margin-top: 12px; font-size: 13.5px; }
+.wish-total b { font-weight: 500; }
+.wish-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+.wish-bar i { display: block; height: 100%; background: var(--c-blue); border-radius: 3px; }
+@media (max-width: 480px) { .price { width: 96px; } }
 .wish .box { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; padding: 0; border: 2px solid var(--border-strong); background: transparent; display: flex; align-items: center; justify-content: center; color: #fff; }
 .wish.done .box { border-color: var(--c-blue); background: var(--c-blue); }
 .wish input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-size: 14px; color: var(--ink); }

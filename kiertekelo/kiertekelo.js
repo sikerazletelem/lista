@@ -456,6 +456,17 @@
     return `<div class="rest-display" style="--c:var(--c-${r.c});--t:var(--c-${r.c}-tint);--x:var(--c-${r.c}-text)">${icon(r.icon)} ${r.label}</div>`;
   }
 
+  // Vásárlási lista összesítő: ami még hátra van, ami megvan, és egy sáv az arányukról.
+  function wishTotalHtml() {
+    const sum = (arr) => arr.reduce((a, w) => a + (Number(w.price) || 0), 0);
+    const left = sum(state.wishlist.filter((w) => !w.done)), bought = sum(state.wishlist.filter((w) => w.done)), all = left + bought;
+    if (!all) return "";
+    return `<div class="wish-total">
+      <div class="between"><span>Még hátra: <b class="font-data">${fmtHUF(left)}</b></span><span class="small font-data">megvéve ${fmtHUF(bought)} / ${fmtHUF(all)}</span></div>
+      <div class="wish-bar"><i style="width:${(bought / all) * 100}%"></i></div>
+    </div>`;
+  }
+
   const VIEWS = {
     overview(D) {
       const weekly = [["Mérnöki", D.mern, "green"], ["Ingatlanpiaci", D.ingat, "gold"]].map(([l, s, c]) => `
@@ -519,11 +530,12 @@
           <button class="grip" data-drag="wish" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${icon("grip", "icon")}</button>
           <button class="box" data-act="wishToggle" data-id="${w.id}" aria-label="Kész" aria-pressed="${w.done}">${w.done ? icon("check", "icon icon-sm") : ""}</button>
           <input value="${esc(w.text)}" data-wish="${w.id}" aria-label="Tétel szövege">
+          <label class="price"><input type="number" inputmode="numeric" min="0" step="1000" class="font-data" data-wish-price="${w.id}" value="${w.price ?? ""}" placeholder="0" aria-label="Összeg (Ft)"><span>Ft</span></label>
           <button class="icon-btn" data-act="wishDel" data-id="${w.id}" aria-label="Törlés">${icon("trash", "icon icon-sm")}</button>
         </div>`).join("") : `<div class="empty">Még nincs tétel a listán.</div>`;
       return `<div class="stack">
         ${card(eyebrow("Vásárlási lista", "blue") + `<p class="desc">Ruhák, cipők, asztal, csuklótáska… nem sürgős, de a terv része. Pipálható és szerkeszthető, máshoz nem kapcsolódik.</p>
-          <div class="stack tight">${wishes}</div>${addRow("wish", "új tétel… (pl. téli cipő)", "blue")}`, "blue")}
+          <div class="stack tight wish-list">${wishes}</div><div id="wishTotal">${wishTotalHtml()}</div>${addRow("wish", "új tétel… (pl. téli cipő)", "blue")}`, "blue")}
         ${card(eyebrow("Nagyobb célok lebontása", "purple") + `<p class="desc">Ide írd le, hogyan bontod le a nagy és köztes célt konkrét, sorban követhető lépésekre.</p>
           <textarea class="field-input" rows="6" data-field="bigGoalsBreakdown" placeholder="pl. 1) diploma megszerzése → 2) projektvezetői váltás → 3) …">${esc(state.bigGoalsBreakdown)}</textarea>`, "purple")}
         ${card(eyebrow("Havi bevétel bevitele") + `<div class="two">
@@ -607,6 +619,7 @@
     const focusKey = active && (active.dataset.field || active.dataset.addInput || active.dataset.wish);
     const pos = focusKey && active.selectionStart;
     $("#view").innerHTML = VIEWS[tab](D);
+    $("#importBtn").parentElement.hidden = !!state.importedAt; // egyszeri: átvétel után eltűnik
     if (focusKey) {
       const n = $(`[data-field="${focusKey}"],[data-add-input="${focusKey}"],[data-wish="${focusKey}"]`);
       if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} }
@@ -675,6 +688,9 @@
       }, false);
     } else if (t.dataset.wish) {
       mutate((s) => { const w = s.wishlist.find((x) => x.id === t.dataset.wish); if (w) w.text = t.value; }, false);
+    } else if (t.dataset.wishPrice) {
+      mutate((s) => { const w = s.wishlist.find((x) => x.id === t.dataset.wishPrice); if (w) w.price = t.value === "" ? null : Math.max(0, Number(t.value)); }, false);
+      $("#wishTotal").innerHTML = wishTotalHtml();
     }
   });
 
@@ -683,48 +699,104 @@
     if (e.key === "Enter" && t.dataset && t.dataset.addInput) { e.preventDefault(); addTo(t.dataset.addInput, t.value); }
   });
 
-  // ---------- átrendezés (vásárlási lista): fogantyút húzva, vagy fel/le nyíllal ----------
-  function commitWishOrder(row) {
-    const ids = [...row.parentElement.querySelectorAll(".wish")].map((r) => r.dataset.id);
-    if (ids.join() === state.wishlist.map((w) => w.id).join()) return render();
+  // ---------- átrendezés (vásárlási lista) ----------
+  // Húzáskor a kártya az egeret/ujjat követi, a többi kártya finoman félrecsúszik a helyéről,
+  // elengedéskor a kártya a helyére siklik, és csak utána mentünk. Billentyűvel: fogantyú + ↑/↓.
+  const SETTLE_MS = 180;
+  const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function saveWishOrder(ids, focusId) {
     mutate((s) => { const byId = new Map(s.wishlist.map((w) => [w.id, w])); s.wishlist = ids.map((id) => byId.get(id)).filter(Boolean); });
-    const g = $(`.wish[data-id="${row.dataset.id}"] .grip`); if (g) g.focus();
+    const g = $(`.wish[data-id="${focusId}"] .grip`); if (g) g.focus();
   }
+
   let drag = null;
   document.addEventListener("pointerdown", (e) => {
     const h = e.target.closest("[data-drag]");
-    if (!h || !state) return;
+    if (!h || !state || drag) return;
     e.preventDefault();
     try { h.setPointerCapture(e.pointerId); } catch {}
-    drag = { row: h.closest(".wish"), moved: false };
-    drag.row.classList.add("dragging");
+    const row = h.closest(".wish");
+    const rows = [...row.parentElement.querySelectorAll(".wish")];
+    const rects = rows.map((r) => r.getBoundingClientRect());
+    const from = rows.indexOf(row);
+    const gap = rows.length > 1 ? rects[1].top - rects[0].bottom : 0;
+    drag = { row, rows, rects, from, to: from, step: rects[from].height + gap, startY: e.clientY, dy: 0 };
+    row.classList.add("dragging");
+    rows.forEach((r) => { if (r !== row) r.classList.add("shifting"); });
+    document.body.classList.add("is-dragging");
   });
+
   document.addEventListener("pointermove", (e) => {
-    if (!drag) return;
-    const list = drag.row.parentElement;
-    const others = [...list.querySelectorAll(".wish")].filter((r) => r !== drag.row);
-    const before = others.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
-    if (before) { if (drag.row.nextElementSibling !== before) { list.insertBefore(drag.row, before); drag.moved = true; } }
-    else if (others.length) { const last = others.at(-1); if (last.nextElementSibling !== drag.row) { last.after(drag.row); drag.moved = true; } }
+    if (!drag || drag.settling) return;
+    const { row, rows, rects, from, step } = drag;
+    // A kártya nem húzható ki a lista tetejénél/aljánál messzebbre.
+    const min = rects[0].top - rects[from].top, max = rects.at(-1).bottom - rects[from].bottom;
+    const dy = Math.max(min, Math.min(max, e.clientY - drag.startY));
+    drag.dy = dy;
+    row.style.transform = `translateY(${dy}px)`;
+    const center = rects[from].top + rects[from].height / 2 + dy;
+    let to = from;
+    rects.forEach((r, i) => {
+      const mid = r.top + r.height / 2;
+      if (i < from && center <= mid) to = Math.min(to, i);
+      if (i > from && center >= mid) to = Math.max(to, i);
+    });
+    drag.to = to;
+    rows.forEach((r, i) => {
+      if (i === from) return;
+      const shift = from < i && i <= to ? -step : to <= i && i < from ? step : 0;
+      r.style.transform = shift ? `translateY(${shift}px)` : "";
+    });
   });
+
   function endDrag() {
-    if (!drag) return;
-    const { row, moved } = drag;
-    drag = null;
-    row.classList.remove("dragging");
-    if (moved) commitWishOrder(row); else row.querySelector(".grip").focus();
+    if (!drag || drag.settling) return;
+    const d = drag;
+    d.settling = true;
+    const { row, rows, rects, from, to } = d;
+    const offset = to > from ? rects[to].bottom - rects[from].bottom : to < from ? rects[to].top - rects[from].top : 0;
+    row.classList.add("settling");
+    row.style.transform = offset ? `translateY(${offset}px)` : "";
+    const finish = () => {
+      drag = null;
+      document.body.classList.remove("is-dragging");
+      if (to === from) {
+        rows.forEach((r) => { r.classList.remove("dragging", "shifting", "settling"); r.style.transform = ""; });
+        if (Math.abs(d.dy) < 3) row.querySelector(".grip").focus(); // csak kattintás volt: jöhetnek a nyilak
+        return;
+      }
+      const ids = rows.map((r) => r.dataset.id);
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      saveWishOrder(ids, row.dataset.id); // újrarajzol: a kártyák már a végleges helyükön vannak
+    };
+    if (reduceMotion()) finish(); else setTimeout(finish, SETTLE_MS);
   }
   document.addEventListener("pointerup", endDrag);
   document.addEventListener("pointercancel", endDrag);
+
+  // Billentyű: a két kártya helyet cserél, egy rövid csúszó animációval.
   document.addEventListener("keydown", (e) => {
     const h = e.target.closest && e.target.closest("[data-drag]");
-    if (!h || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    if (!h || drag || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
     e.preventDefault();
-    const row = h.closest(".wish");
-    const sib = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
-    if (!sib || !sib.classList.contains("wish")) return;
-    if (e.key === "ArrowUp") sib.before(row); else sib.after(row);
-    commitWishOrder(row);
+    const rows = [...h.closest(".wish-list").querySelectorAll(".wish")];
+    const row = h.closest(".wish"), from = rows.indexOf(row), to = from + (e.key === "ArrowUp" ? -1 : 1);
+    if (to < 0 || to >= rows.length) return;
+    const before = new Map(rows.map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
+    const ids = rows.map((r) => r.dataset.id);
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    saveWishOrder(ids, row.dataset.id);
+    if (reduceMotion()) return;
+    document.querySelectorAll(".wish-list .wish").forEach((r) => {
+      const d = before.get(r.dataset.id) - r.getBoundingClientRect().top;
+      if (!d) return;
+      r.style.transform = `translateY(${d}px)`;
+      r.getBoundingClientRect(); // a kiinduló helyzet rögzítése, hogy az átmenet elinduljon
+      r.classList.add("settling");
+      r.style.transform = "";
+      setTimeout(() => r.classList.remove("settling"), SETTLE_MS);
+    });
   });
 
   // ---------- helyi demó (csak localhost/#demo; nincs Firebase, nincs mentés) ----------
@@ -735,7 +807,7 @@
     state.presence.items = [{ id: "p1", label: "A pillanatok tényleges megélése" }];
     state.ideas = [{ id: "i1", text: "Példa ötlet", date: todayStr(), status: "parkolva" }];
     state.income = { mernoki: 450000, ingatlanpiaci: 120000 };
-    state.wishlist = [{ id: "w1", text: "Első", done: false }, { id: "w2", text: "Második", done: false }, { id: "w3", text: "Harmadik", done: false }];
+    state.wishlist = [{ id: "w1", text: "Első", done: false, price: 12000 }, { id: "w2", text: "Második", done: true, price: 8000 }, { id: "w3", text: "Harmadik", done: false }];
     const now = Date.now();
     [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false]]
       .forEach(([block, text, done], i) => items.set("d" + i, { id: "d" + i, block, text, done, deleted: false, updatedAt: now - i * 3600000 }));
