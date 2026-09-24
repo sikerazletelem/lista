@@ -45,6 +45,11 @@ h1 { font: italic 500 30px/1 Georgia, "Times New Roman", serif; margin: 0 0 16px
 .empty { padding: 12px 6px; font-size: 14px; color: var(--faint); font-style: italic; }
 .item { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border); }
 .item:last-child { border-bottom: 0; }
+.grip { flex: none; width: 26px; height: 44px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--faint); cursor: grab; touch-action: none; margin-right: -6px; }
+.grip svg { width: 18px; height: 18px; }
+span.grip { cursor: default; }
+.item.dragging { background: var(--t); border-radius: 10px; box-shadow: 0 4px 14px rgba(20,30,28,.18); position: relative; z-index: 1; }
+.item.dragging .grip { cursor: grabbing; color: var(--c); }
 .check { flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; padding: 0; cursor: pointer; }
 .box { width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--faint); display: grid; place-items: center; color: transparent; }
 .item.done .box { background: var(--c); border-color: var(--c); color: #fff; }

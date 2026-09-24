@@ -6,6 +6,7 @@ const SECTIONS = [
 const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>';
 const CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const PLUS = '<svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M12 5v14M5 12h14"/></svg>';
+const GRIP = '<svg viewBox="0 0 24 24"><path d="M7 8h10M7 12h10M7 16h10"/></svg>';
 
 let items = [];            // minden rekord, a törölt is (jelölővel)
 const showDone = {};
@@ -14,6 +15,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const setStatus = (t) => { $("#status").textContent = t; };
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const live = (k) => items.filter((i) => i.block === k && !i.deleted);
+// Sorrend: kisebb "order" van feljebb. A régi, order nélküli tételeknél -updatedAt, így a
+// megszokott "legújabb felül" sorrend marad, amíg át nem rendezed őket.
+const orderKey = (i) => (i.order ?? -i.updatedAt);
 
 function shell() {
   $("#blocks").innerHTML = SECTIONS.map((s) => `
@@ -30,18 +34,21 @@ function shell() {
     e.preventDefault();
     const inp = $("input", f), text = inp.value.trim();
     if (!text) return;
-    save({ id: newId(), block: f.dataset.k, text, done: false, deleted: false, updatedAt: Date.now() });
+    const now = Date.now();
+    save({ id: newId(), block: f.dataset.k, text, done: false, deleted: false, order: -now, updatedAt: now });
     inp.value = "";
     inp.focus();
   }));
 }
 
 function renderBlock(k) {
-  const list = live(k).sort((a, b) => b.updatedAt - a.updatedAt);
-  const open = list.filter((i) => !i.done), done = list.filter((i) => i.done);
+  const list = live(k);
+  const open = list.filter((i) => !i.done).sort((a, b) => orderKey(a) - orderKey(b));
+  const done = list.filter((i) => i.done).sort((a, b) => b.updatedAt - a.updatedAt);
   $("#cnt-" + k).textContent = open.length + " nyitott";
   const row = (i) => `
     <div class="item${i.done ? " done" : ""}" data-id="${i.id}">
+      ${i.done ? '<span class="grip" aria-hidden="true"></span>' : `<button class="grip" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${GRIP}</button>`}
       <button class="check" data-act="toggle" aria-label="Kész" aria-pressed="${i.done}"><span class="box">${CHECK}</span></button>
       <input class="txt" type="text" value="${esc(i.text)}" aria-label="Tétel szövege">
       <button class="del" data-act="del" aria-label="Törlés">${CROSS}</button>
@@ -98,9 +105,66 @@ document.addEventListener("input", (e) => {
   editTimer = setTimeout(() => Store.put(updated).then(() => { setStatus("Mentve a telefonon"); syncPush(updated); }).catch(() => setStatus("A mentés nem sikerült — próbáld újra.")), 400);
 });
 
+// --- Átrendezés: a fogantyút húzva (egér, érintés), vagy a fogantyún fel/le nyíllal ---
+// Csak az áthelyezett tétel kap új "order" értéket (a két szomszédja közé), így egyetlen
+// mentés és egyetlen felküldés történik.
+function commitOrder(row) {
+  const blk = row.closest(".block"), k = blk.id.slice(4);
+  const ids = [...row.parentElement.querySelectorAll(".item:not(.done)")].map((r) => r.dataset.id);
+  const it = items.find((x) => x.id === row.dataset.id);
+  if (!it) return;
+  const idx = ids.indexOf(it.id);
+  const key = (id) => orderKey(items.find((x) => x.id === id));
+  const prev = ids[idx - 1], next = ids[idx + 1], cur = orderKey(it);
+  if ((!prev || key(prev) < cur) && (!next || cur < key(next))) { renderBlock(k); return; } // nem mozdult
+  const order = prev && next ? (key(prev) + key(next)) / 2 : prev ? key(prev) + 1 : key(next) - 1;
+  save({ ...it, order, updatedAt: Date.now() });
+}
+
+let drag = null;
+document.addEventListener("pointerdown", (e) => {
+  const h = e.target.closest("button.grip");
+  if (!h) return;
+  e.preventDefault();
+  try { h.setPointerCapture(e.pointerId); } catch (err) {}
+  drag = { row: h.closest(".item"), moved: false };
+  drag.row.classList.add("dragging");
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const list = drag.row.parentElement;
+  const others = [...list.querySelectorAll(".item:not(.done)")].filter((r) => r !== drag.row);
+  const before = others.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+  if (before) { if (drag.row.nextElementSibling !== before) { list.insertBefore(drag.row, before); drag.moved = true; } }
+  else if (others.length) { const last = others[others.length - 1]; if (last.nextElementSibling !== drag.row) { last.after(drag.row); drag.moved = true; } }
+});
+function endDrag() {
+  if (!drag) return;
+  const { row, moved } = drag;
+  drag = null;
+  row.classList.remove("dragging");
+  if (moved) commitOrder(row);
+  else row.querySelector("button.grip").focus(); // kattintás: a nyilakkal folytatható
+}
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+document.addEventListener("keydown", (e) => {
+  const h = e.target.closest && e.target.closest("button.grip");
+  if (!h || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  e.preventDefault();
+  const row = h.closest(".item");
+  const sib = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+  if (!sib || !sib.classList.contains("item") || sib.classList.contains("done")) return;
+  if (e.key === "ArrowUp") sib.before(row); else sib.after(row);
+  const id = row.dataset.id, k = row.closest(".block").id.slice(4);
+  commitOrder(row);
+  const g = $(`#list-${k} .item[data-id="${id}"] button.grip`);
+  if (g) g.focus();
+});
+
 shell();
 renderAll();
-Store.all().then((all) => { items = all; renderAll(); syncFlush(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
+Store.all().then((all) => { items = all.map((i) => (i.order == null ? { ...i, order: -i.updatedAt } : i)); renderAll(); syncFlush(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 

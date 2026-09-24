@@ -5,7 +5,8 @@
 // azok az első sikeres online látogatáskor kerülnek gyorsítótárba a lenti fetch-kezelővel,
 // hogy egy hibás letöltés ne akassza meg a telepítést.
 // v3: a sync.js minden még fel nem küldött tételt pótol (a szinkron előtti régieket is).
-const CACHE = "hid-lista-v3";
+// v4: a tételek sorrendje a fogantyúval átrendezhető (order mező).
+const CACHE = "hid-lista-v4";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

@@ -58,7 +58,7 @@ const Sync = (() => {
     const pub = await loadPublicKey().catch(() => null);
     if (!pub) { markPending(item.id); return false; }
     try {
-      const blob = await HidCrypto.encryptItem(pub, { block: item.block, text: item.text, done: item.done, deleted: item.deleted });
+      const blob = await HidCrypto.encryptItem(pub, { block: item.block, text: item.text, done: item.done, deleted: item.deleted, order: item.order });
       await db.collection("users").doc(user.uid).collection("items").doc(item.id).set({ updatedAt: item.updatedAt, blob });
       clearPendingOne(item.id);
       markSynced(item);
