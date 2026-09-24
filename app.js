@@ -105,16 +105,20 @@ document.addEventListener("input", (e) => {
   editTimer = setTimeout(() => Store.put(updated).then(() => { setStatus("Mentve a telefonon"); syncPush(updated); }).catch(() => setStatus("A mentés nem sikerült — próbáld újra.")), 400);
 });
 
-// --- Átrendezés: a fogantyút húzva (egér, érintés), vagy a fogantyún fel/le nyíllal ---
-// Csak az áthelyezett tétel kap új "order" értéket (a két szomszédja közé), így egyetlen
-// mentés és egyetlen felküldés történik.
-function commitOrder(row) {
-  const blk = row.closest(".block"), k = blk.id.slice(4);
-  const ids = [...row.parentElement.querySelectorAll(".item:not(.done)")].map((r) => r.dataset.id);
-  const it = items.find((x) => x.id === row.dataset.id);
+// --- Átrendezés: a fogantyút húzva (ujj, egér), vagy a fogantyún fel/le nyíllal ---
+// Húzáskor a tétel az ujjat követi, a többi finoman félrecsúszik, elengedéskor a tétel a
+// helyére siklik. Csak az áthelyezett tétel kap új "order" értéket (a két új szomszédja
+// közé), így egyetlen mentés és egyetlen (titkosított) felküldés történik — a Kiértékelő
+// Jegyzet füle ebből élőben frissül.
+const SETTLE_MS = 180;
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ids: a nyitott tételek új sorrendje; id: az áthelyezett tétel.
+function commitOrder(k, ids, id) {
+  const it = items.find((x) => x.id === id);
   if (!it) return;
-  const idx = ids.indexOf(it.id);
-  const key = (id) => orderKey(items.find((x) => x.id === id));
+  const idx = ids.indexOf(id);
+  const key = (x) => orderKey(items.find((i) => i.id === x));
   const prev = ids[idx - 1], next = ids[idx + 1], cur = orderKey(it);
   if ((!prev || key(prev) < cur) && (!next || cur < key(next))) { renderBlock(k); return; } // nem mozdult
   const order = prev && next ? (key(prev) + key(next)) / 2 : prev ? key(prev) + 1 : key(next) - 1;
@@ -124,42 +128,92 @@ function commitOrder(row) {
 let drag = null;
 document.addEventListener("pointerdown", (e) => {
   const h = e.target.closest("button.grip");
-  if (!h) return;
+  if (!h || drag) return;
   e.preventDefault();
   try { h.setPointerCapture(e.pointerId); } catch (err) {}
-  drag = { row: h.closest(".item"), moved: false };
-  drag.row.classList.add("dragging");
+  const row = h.closest(".item");
+  const rows = [...row.parentElement.querySelectorAll(".item:not(.done)")];
+  const rects = rows.map((r) => r.getBoundingClientRect());
+  const from = rows.indexOf(row);
+  const gap = rows.length > 1 ? rects[1].top - rects[0].bottom : 0;
+  drag = { row, rows, rects, from, to: from, step: rects[from].height + gap, startY: e.clientY, dy: 0, k: row.closest(".block").id.slice(4) };
+  row.classList.add("dragging");
+  rows.forEach((r) => { if (r !== row) r.classList.add("shifting"); });
+  document.body.classList.add("is-dragging");
 });
 document.addEventListener("pointermove", (e) => {
-  if (!drag) return;
-  const list = drag.row.parentElement;
-  const others = [...list.querySelectorAll(".item:not(.done)")].filter((r) => r !== drag.row);
-  const before = others.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
-  if (before) { if (drag.row.nextElementSibling !== before) { list.insertBefore(drag.row, before); drag.moved = true; } }
-  else if (others.length) { const last = others[others.length - 1]; if (last.nextElementSibling !== drag.row) { last.after(drag.row); drag.moved = true; } }
+  if (!drag || drag.settling) return;
+  const { row, rows, rects, from, step } = drag;
+  // A tétel nem húzható ki a nyitott tételek listájából.
+  const min = rects[0].top - rects[from].top, max = rects[rects.length - 1].bottom - rects[from].bottom;
+  const dy = Math.max(min, Math.min(max, e.clientY - drag.startY));
+  drag.dy = dy;
+  row.style.transform = `translateY(${dy}px)`;
+  const center = rects[from].top + rects[from].height / 2 + dy;
+  let to = from;
+  rects.forEach((r, i) => {
+    const mid = r.top + r.height / 2;
+    if (i < from && center <= mid + 2) to = Math.min(to, i); // +2 px tűrés: a sorok magassága pár tized pixelben eltérhet
+    if (i > from && center >= mid - 2) to = Math.max(to, i);
+  });
+  drag.to = to;
+  rows.forEach((r, i) => {
+    if (i === from) return;
+    const shift = from < i && i <= to ? -step : to <= i && i < from ? step : 0;
+    r.style.transform = shift ? `translateY(${shift}px)` : "";
+  });
 });
 function endDrag() {
-  if (!drag) return;
-  const { row, moved } = drag;
-  drag = null;
-  row.classList.remove("dragging");
-  if (moved) commitOrder(row);
-  else row.querySelector("button.grip").focus(); // kattintás: a nyilakkal folytatható
+  if (!drag || drag.settling) return;
+  const d = drag;
+  d.settling = true;
+  const { row, rows, rects, from, to, k } = d;
+  const offset = to > from ? rects[to].bottom - rects[from].bottom : to < from ? rects[to].top - rects[from].top : 0;
+  row.classList.add("settling");
+  row.style.transform = offset ? `translateY(${offset}px)` : "";
+  const finish = () => {
+    drag = null;
+    document.body.classList.remove("is-dragging");
+    if (to === from) {
+      rows.forEach((r) => { r.classList.remove("dragging", "shifting", "settling"); r.style.transform = ""; });
+      if (Math.abs(d.dy) < 3) row.querySelector("button.grip").focus(); // csak koppintás volt: jöhetnek a nyilak
+      return;
+    }
+    const ids = rows.map((r) => r.dataset.id);
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    commitOrder(k, ids, row.dataset.id); // újrarajzol: a tételek már a végleges helyükön vannak
+  };
+  if (reduceMotion()) finish(); else setTimeout(finish, SETTLE_MS);
 }
 document.addEventListener("pointerup", endDrag);
 document.addEventListener("pointercancel", endDrag);
+
+// Billentyű: a két tétel helyet cserél, rövid csúszó animációval.
 document.addEventListener("keydown", (e) => {
   const h = e.target.closest && e.target.closest("button.grip");
-  if (!h || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  if (!h || drag || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
   e.preventDefault();
-  const row = h.closest(".item");
-  const sib = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
-  if (!sib || !sib.classList.contains("item") || sib.classList.contains("done")) return;
-  if (e.key === "ArrowUp") sib.before(row); else sib.after(row);
-  const id = row.dataset.id, k = row.closest(".block").id.slice(4);
-  commitOrder(row);
+  const row = h.closest(".item"), k = row.closest(".block").id.slice(4);
+  const rows = [...row.parentElement.querySelectorAll(".item:not(.done)")];
+  const from = rows.indexOf(row), to = from + (e.key === "ArrowUp" ? -1 : 1);
+  if (to < 0 || to >= rows.length) return;
+  const before = new Map(rows.map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
+  const ids = rows.map((r) => r.dataset.id);
+  ids.splice(to, 0, ids.splice(from, 1)[0]);
+  const id = row.dataset.id;
+  commitOrder(k, ids, id);
   const g = $(`#list-${k} .item[data-id="${id}"] button.grip`);
   if (g) g.focus();
+  if (reduceMotion()) return;
+  document.querySelectorAll(`#list-${k} .item:not(.done)`).forEach((r) => {
+    const dy = before.get(r.dataset.id) - r.getBoundingClientRect().top;
+    if (!dy) return;
+    r.style.transform = `translateY(${dy}px)`;
+    r.getBoundingClientRect(); // a kiinduló helyzet rögzítése, hogy az átmenet elinduljon
+    r.classList.add("settling");
+    r.style.transform = "";
+    setTimeout(() => r.classList.remove("settling"), SETTLE_MS);
+  });
 });
 
 shell();

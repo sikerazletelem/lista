@@ -7,7 +7,8 @@
 // v3: a sync.js minden még fel nem küldött tételt pótol (a szinkron előtti régieket is).
 // v4: a tételek sorrendje a fogantyúval átrendezhető (order mező).
 // v5: csak a lista saját fájljait tárolja (a Firebase-t és a Kiértékelőt nem).
-const CACHE = "hid-lista-v5";
+// v6: sima, csúszó átrendezés.
+const CACHE = "hid-lista-v6";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
