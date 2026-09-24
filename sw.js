@@ -4,11 +4,13 @@
 // online-hoz szükséges Firebase-fájlokat (vendor/) szándékosan nem előtöltjük itt —
 // azok az első sikeres online látogatáskor kerülnek gyorsítótárba a lenti fetch-kezelővel,
 // hogy egy hibás letöltés ne akassza meg a telepítést.
-const CACHE = "hid-lista-v2";
+// v3: a sync.js minden még fel nem küldött tételt pótol (a szinkron előtti régieket is).
+const CACHE = "hid-lista-v3";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // cache: "reload": a böngésző HTTP-gyorsítótárát megkerülve a friss fájlokat tölti le.
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

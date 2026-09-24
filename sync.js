@@ -12,6 +12,7 @@
 const Sync = (() => {
   const PENDING_KEY = "hid-sync-pending";
   const PUBKEY_KEY = "hid-sync-pubkey";
+  const SYNCED_KEY = "hid-sync-synced"; // { id: updatedAt } — mi van már fent a felhőben, milyen állapotban
   let app = null, auth = null, db = null;
   let user = null, publicKey = null, publicKeyChecked = false;
   let onStatus = () => {};
@@ -35,6 +36,8 @@ const Sync = (() => {
   function setPending(ids) { localStorage.setItem(PENDING_KEY, JSON.stringify(Array.from(new Set(ids)))); }
   function markPending(id) { setPending(pending().concat([id])); }
   function clearPendingOne(id) { setPending(pending().filter((x) => x !== id)); }
+  function synced() { try { return JSON.parse(localStorage.getItem(SYNCED_KEY) || "{}"); } catch { return {}; } }
+  function markSynced(item) { const s = synced(); s[item.id] = item.updatedAt; localStorage.setItem(SYNCED_KEY, JSON.stringify(s)); }
 
   async function loadPublicKey() {
     if (publicKey) return publicKey;
@@ -58,6 +61,7 @@ const Sync = (() => {
       const blob = await HidCrypto.encryptItem(pub, { block: item.block, text: item.text, done: item.done, deleted: item.deleted });
       await db.collection("users").doc(user.uid).collection("items").doc(item.id).set({ updatedAt: item.updatedAt, blob });
       clearPendingOne(item.id);
+      markSynced(item);
       return true;
     } catch (e) { markPending(item.id); return false; }
   }
@@ -88,6 +92,16 @@ const Sync = (() => {
         const item = getById(id);
         if (item) await pushOne(item);
         else clearPendingOne(id);
+      }
+    },
+    // Minden olyan tétel felküldése, ami még nincs fent, vagy azóta változott. Ez pótolja
+    // a szinkron bevezetése előtt felvett tételeket is. Induláskor, bejelentkezéskor és
+    // online-ra váltáskor hívjuk; ami már fent van, azt nem küldi újra.
+    async syncAll(all) {
+      if (!navigator.onLine || !user) return;
+      const s = synced();
+      for (const item of all) {
+        if (s[item.id] !== item.updatedAt) await pushOne(item);
       }
     },
     pendingCount: () => pending().length,

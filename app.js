@@ -64,7 +64,7 @@ function save(item) {
 
 const hasSync = () => typeof Sync !== "undefined";
 function syncPush(item) { try { if (hasSync()) Sync.push(item); } catch (e) {} }
-function syncFlush() { try { if (hasSync()) Sync.flushPending((id) => items.find((x) => x.id === id)); } catch (e) {} }
+function syncFlush() { try { if (hasSync()) Sync.syncAll(items.slice()); } catch (e) {} }
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-act]");
@@ -152,7 +152,8 @@ document.addEventListener("click", (e) => {
 window.addEventListener("online", syncFlush);
 try {
   if (hasSync()) {
-    Sync.init((state) => renderSync(state));
+    // Bejelentkezett állapotban (az app indulásakor is) felküldjük, ami még nincs fent.
+    Sync.init((state) => { renderSync(state); if (state && state.loggedIn) syncFlush(); });
     renderSync({ loggedIn: Sync.isLoggedIn(), email: Sync.email() });
   }
 } catch (e) {}
