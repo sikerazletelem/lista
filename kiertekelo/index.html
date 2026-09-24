@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.googleapis.com; frame-src https://hid-lista.firebaseapp.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#F1F3EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141A18" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Híd Kiértékelő</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450;0,9..144,560;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="kiertekelo.css">
+</head>
+<body>
+
+<!-- 1. Bejelentkezés: a böngésző megjegyzi, csak az első alkalommal kell -->
+<main class="gate" id="loginGate" hidden>
+  <h1 class="font-display">A Híd</h1>
+  <p class="hint">Első bejelentkezés ezen a gépen, ugyanazzal a Firebase-fiókkal, mint a telefonos listán. Ezt a gép megjegyzi, legközelebb már nem kéri.</p>
+  <form id="loginForm">
+    <label for="email">E-mail</label>
+    <input id="email" class="field-input" type="email" autocomplete="username" required>
+    <label for="pw">Jelszó</label>
+    <input id="pw" class="field-input" type="password" autocomplete="current-password" required>
+    <button class="btn btn-dark" type="submit">Belépés</button>
+  </form>
+  <div class="out" id="loginOut" aria-live="polite"></div>
+</main>
+
+<!-- 2. Feloldás a titkosítási jelszóval -->
+<main class="gate" id="lockGate" hidden>
+  <h1 class="font-display">A Híd</h1>
+  <p class="hint" id="lockWho"></p>
+  <form id="unlockForm">
+    <label for="encPw">Titkosítási jelszó</label>
+    <input id="encPw" class="field-input" type="password" autocomplete="off" required>
+    <label class="chk"><input type="checkbox" id="remember"> Ne kérje újra ezen a gépen 30 napig</label>
+    <button class="btn btn-dark" type="submit">Feloldás</button>
+  </form>
+  <details>
+    <summary>Feloldás a helyreállítási kulccsal</summary>
+    <form id="recForm">
+      <label for="recKey">Helyreállítási kulcs</label>
+      <input id="recKey" class="field-input" autocomplete="off" spellcheck="false" required>
+      <button class="btn btn-dark" type="submit">Feloldás</button>
+    </form>
+  </details>
+  <div class="out" id="unlockOut" aria-live="polite"></div>
+  <p class="foot"><button class="link" id="logoutBtn" type="button">Kijelentkezés a Firebase-fiókból</button></p>
+</main>
+
+<!-- 3. A feloldott felület -->
+<div class="wrap" id="app" hidden>
+  <header class="head">
+    <div>
+      <div class="kicker">Kiértékelő</div>
+      <h1 class="font-display">A Híd</h1>
+    </div>
+    <div class="head-right font-data">
+      <div id="today"></div>
+      <div id="saveStatus" aria-live="polite"></div>
+      <button class="link" id="lockBtn" type="button">Zárolás</button>
+    </div>
+  </header>
+  <svg class="arc" viewBox="0 0 400 32" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,28 Q200,-6 400,28" stroke="var(--c-green)" stroke-width="1.4" fill="none" opacity="0.35"/>
+    <circle cx="14" cy="26.5" r="2.5" fill="var(--c-green)" opacity="0.45"/>
+    <circle cx="386" cy="26.5" r="2.5" fill="var(--c-green)" opacity="0.45"/>
+  </svg>
+  <nav class="tabs" id="tabs"></nav>
+  <div id="flash" class="flash" hidden></div>
+  <div id="view"></div>
+  <footer class="foot-note">
+    <div>A tükör mindig egy kicsit késik</div>
+    <div class="timing font-data" id="timing"></div>
+    <div class="import"><button class="link" id="importBtn" type="button">Átvétel a régi Hídból (egyszeri)</button><input type="file" id="importFile" accept=".json,application/json" hidden></div>
+  </footer>
+</div>
+
+<script src="../vendor/firebase/firebase-app-compat.js"></script>
+<script src="../vendor/firebase/firebase-auth-compat.js"></script>
+<script src="../vendor/firebase/firebase-firestore-compat.js"></script>
+<script src="../firebase-config.js"></script>
+<script src="../hid-crypto.js"></script>
+<script src="kiertekelo.js"></script>
+</body>
+</html>
