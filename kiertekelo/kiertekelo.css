@@ -155,6 +155,10 @@ svg.icon-sm { width: 13px; height: 13px; }
 /* vásárlási lista */
 .wish { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
 .wish.done { background: var(--surface-2); }
+.wish .grip { flex: none; width: 22px; height: 28px; margin: 0 -6px 0 -4px; padding: 0; display: grid; place-items: center; background: none; border: none; color: var(--faint); cursor: grab; touch-action: none; }
+.wish .grip svg.icon { width: 16px; height: 16px; }
+.wish.dragging { border-color: var(--c-blue); box-shadow: 0 4px 14px rgba(20,30,28,.15); position: relative; z-index: 1; }
+.wish.dragging .grip { cursor: grabbing; color: var(--c-blue); }
 .wish .box { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; padding: 0; border: 2px solid var(--border-strong); background: transparent; display: flex; align-items: center; justify-content: center; color: #fff; }
 .wish.done .box { border-color: var(--c-blue); background: var(--c-blue); }
 .wish input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-size: 14px; color: var(--ink); }

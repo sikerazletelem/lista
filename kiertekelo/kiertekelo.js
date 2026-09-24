@@ -61,6 +61,7 @@
     batteryLow: '<rect x="2" y="8" width="16" height="8" rx="2"/><path d="M20 10.5v3"/><path d="M6 12h1.5"/>',
     briefcase: '<rect x="3" y="7.5" width="18" height="12" rx="2"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5M3 12.5h18"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
+    grip: '<path d="M7 8h10M7 12h10M7 16h10"/>',
   };
   const icon = (n, cls = "icon") => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${ICONS[n]}</svg>`;
 
@@ -282,7 +283,7 @@
         const d = ch.doc.data();
         try {
           const o = await HidCrypto.decryptItem(key, d.blob);
-          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, deleted: !!o.deleted, updatedAt: d.updatedAt });
+          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, deleted: !!o.deleted, order: o.order, updatedAt: d.updatedAt });
         } catch { items.set(id, { id, error: true, updatedAt: d.updatedAt }); }
       }));
       if (key !== privateKey) return;
@@ -514,7 +515,8 @@
 
     paths() {
       const wishes = state.wishlist.length ? state.wishlist.map((w) => `
-        <div class="wish${w.done ? " done" : ""}">
+        <div class="wish${w.done ? " done" : ""}" data-id="${w.id}">
+          <button class="grip" data-drag="wish" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${icon("grip", "icon")}</button>
           <button class="box" data-act="wishToggle" data-id="${w.id}" aria-label="Kész" aria-pressed="${w.done}">${w.done ? icon("check", "icon icon-sm") : ""}</button>
           <input value="${esc(w.text)}" data-wish="${w.id}" aria-label="Tétel szövege">
           <button class="icon-btn" data-act="wishDel" data-id="${w.id}" aria-label="Törlés">${icon("trash", "icon icon-sm")}</button>
@@ -577,7 +579,8 @@
       const bad = all.filter((i) => i.error).length;
       const cols = BLOCKS.map((b) => {
         const live = all.filter((i) => !i.error && !i.deleted && i.block === b.k);
-        const open = live.filter((i) => !i.done).sort((x, y) => y.updatedAt - x.updatedAt);
+        const key = (i) => i.order ?? -i.updatedAt; // ugyanaz a sorrend, mint a telefonon
+        const open = live.filter((i) => !i.done).sort((x, y) => key(x) - key(y));
         const done = live.filter((i) => i.done).sort((x, y) => y.updatedAt - x.updatedAt);
         const row = (i) => `<div class="note-row${i.done ? " done" : ""}"><span class="box">${i.done ? icon("check", "icon icon-sm") : ""}</span><span class="note-t">${esc(i.text)}</span><time class="font-data">${fmtStamp(i.updatedAt)}</time></div>`;
         return `<div class="block" style="--c:var(--c-${b.c});--t:var(--c-${b.c}-tint)">
@@ -680,6 +683,50 @@
     if (e.key === "Enter" && t.dataset && t.dataset.addInput) { e.preventDefault(); addTo(t.dataset.addInput, t.value); }
   });
 
+  // ---------- átrendezés (vásárlási lista): fogantyút húzva, vagy fel/le nyíllal ----------
+  function commitWishOrder(row) {
+    const ids = [...row.parentElement.querySelectorAll(".wish")].map((r) => r.dataset.id);
+    if (ids.join() === state.wishlist.map((w) => w.id).join()) return render();
+    mutate((s) => { const byId = new Map(s.wishlist.map((w) => [w.id, w])); s.wishlist = ids.map((id) => byId.get(id)).filter(Boolean); });
+    const g = $(`.wish[data-id="${row.dataset.id}"] .grip`); if (g) g.focus();
+  }
+  let drag = null;
+  document.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest("[data-drag]");
+    if (!h || !state) return;
+    e.preventDefault();
+    try { h.setPointerCapture(e.pointerId); } catch {}
+    drag = { row: h.closest(".wish"), moved: false };
+    drag.row.classList.add("dragging");
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const list = drag.row.parentElement;
+    const others = [...list.querySelectorAll(".wish")].filter((r) => r !== drag.row);
+    const before = others.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+    if (before) { if (drag.row.nextElementSibling !== before) { list.insertBefore(drag.row, before); drag.moved = true; } }
+    else if (others.length) { const last = others.at(-1); if (last.nextElementSibling !== drag.row) { last.after(drag.row); drag.moved = true; } }
+  });
+  function endDrag() {
+    if (!drag) return;
+    const { row, moved } = drag;
+    drag = null;
+    row.classList.remove("dragging");
+    if (moved) commitWishOrder(row); else row.querySelector(".grip").focus();
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+  document.addEventListener("keydown", (e) => {
+    const h = e.target.closest && e.target.closest("[data-drag]");
+    if (!h || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const row = h.closest(".wish");
+    const sib = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    if (!sib || !sib.classList.contains("wish")) return;
+    if (e.key === "ArrowUp") sib.before(row); else sib.after(row);
+    commitWishOrder(row);
+  });
+
   // ---------- helyi demó (csak localhost/#demo; nincs Firebase, nincs mentés) ----------
   if (DEMO) {
     state = clone(DEFAULT_STATE);
@@ -688,6 +735,7 @@
     state.presence.items = [{ id: "p1", label: "A pillanatok tényleges megélése" }];
     state.ideas = [{ id: "i1", text: "Példa ötlet", date: todayStr(), status: "parkolva" }];
     state.income = { mernoki: 450000, ingatlanpiaci: 120000 };
+    state.wishlist = [{ id: "w1", text: "Első", done: false }, { id: "w2", text: "Második", done: false }, { id: "w3", text: "Harmadik", done: false }];
     const now = Date.now();
     [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false]]
       .forEach(([block, text, done], i) => items.set("d" + i, { id: "d" + i, block, text, done, deleted: false, updatedAt: now - i * 3600000 }));
