@@ -457,12 +457,14 @@
   }
 
   // Vásárlási lista összesítő: ami még hátra van, ami megvan, és egy sáv az arányukról.
+  // Az összegek ezer forintban ("k") értendők: 25 = 25 000 Ft.
   function wishTotalHtml() {
     const sum = (arr) => arr.reduce((a, w) => a + (Number(w.price) || 0), 0);
     const left = sum(state.wishlist.filter((w) => !w.done)), bought = sum(state.wishlist.filter((w) => w.done)), all = left + bought;
     if (!all) return "";
+    const k = (n) => (Math.round(n * 10) / 10).toLocaleString("hu-HU") + "k";
     return `<div class="wish-total">
-      <div class="between"><span>Még hátra: <b class="font-data">${fmtHUF(left)}</b></span><span class="small font-data">megvéve ${fmtHUF(bought)} / ${fmtHUF(all)}</span></div>
+      <div class="between"><span>Még hátra: <b class="font-data">${k(left)}</b></span><span class="small font-data">megvéve ${k(bought)} / ${k(all)}</span></div>
       <div class="wish-bar"><i style="width:${(bought / all) * 100}%"></i></div>
     </div>`;
   }
@@ -530,7 +532,7 @@
           <button class="grip" data-drag="wish" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${icon("grip", "icon")}</button>
           <button class="box" data-act="wishToggle" data-id="${w.id}" aria-label="Kész" aria-pressed="${w.done}">${w.done ? icon("check", "icon icon-sm") : ""}</button>
           <input value="${esc(w.text)}" data-wish="${w.id}" aria-label="Tétel szövege">
-          <label class="price"><input type="number" inputmode="numeric" min="0" step="1000" class="font-data" data-wish-price="${w.id}" value="${w.price ?? ""}" placeholder="0" aria-label="Összeg (Ft)"><span>Ft</span></label>
+          <label class="price"><input type="number" inputmode="decimal" min="0" step="any" class="font-data" data-wish-price="${w.id}" value="${w.price ?? ""}" placeholder="0" aria-label="Összeg (ezer Ft)"><span>k</span></label>
           <button class="icon-btn" data-act="wishDel" data-id="${w.id}" aria-label="Törlés">${icon("trash", "icon icon-sm")}</button>
         </div>`).join("") : `<div class="empty">Még nincs tétel a listán.</div>`;
       return `<div class="stack">
@@ -739,8 +741,8 @@
     let to = from;
     rects.forEach((r, i) => {
       const mid = r.top + r.height / 2;
-      if (i < from && center <= mid) to = Math.min(to, i);
-      if (i > from && center >= mid) to = Math.max(to, i);
+      if (i < from && center <= mid + 2) to = Math.min(to, i); // +2 px tűrés: a sorok magassága pár tized pixelben eltérhet
+      if (i > from && center >= mid - 2) to = Math.max(to, i);
     });
     drag.to = to;
     rows.forEach((r, i) => {
@@ -807,7 +809,7 @@
     state.presence.items = [{ id: "p1", label: "A pillanatok tényleges megélése" }];
     state.ideas = [{ id: "i1", text: "Példa ötlet", date: todayStr(), status: "parkolva" }];
     state.income = { mernoki: 450000, ingatlanpiaci: 120000 };
-    state.wishlist = [{ id: "w1", text: "Első", done: false, price: 12000 }, { id: "w2", text: "Második", done: true, price: 8000 }, { id: "w3", text: "Harmadik", done: false }];
+    state.wishlist = [{ id: "w1", text: "Első", done: false, price: 12 }, { id: "w2", text: "Második", done: true, price: 8 }, { id: "w3", text: "Harmadik", done: false }];
     const now = Date.now();
     [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false]]
       .forEach(([block, text, done], i) => items.set("d" + i, { id: "d" + i, block, text, done, deleted: false, updatedAt: now - i * 3600000 }));

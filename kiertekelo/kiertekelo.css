@@ -165,7 +165,7 @@ svg.icon-sm { width: 13px; height: 13px; }
 body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .wish.shifting, .wish.settling { transition: none; } }
 
-.price { display: flex; align-items: center; gap: 4px; flex: none; width: 118px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--faint); cursor: text; }
+.price { display: flex; align-items: center; gap: 4px; flex: none; width: 92px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--faint); cursor: text; }
 .price:focus-within { border-color: var(--c-blue); }
 .wish .price input { width: 100%; min-width: 0; text-align: right; font-size: 13px; background: transparent; border: none; outline: none; color: var(--ink); -moz-appearance: textfield; }
 .price input::-webkit-outer-spin-button, .price input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -174,7 +174,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .wish-total b { font-weight: 500; }
 .wish-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
 .wish-bar i { display: block; height: 100%; background: var(--c-blue); border-radius: 3px; }
-@media (max-width: 480px) { .price { width: 96px; } }
+@media (max-width: 480px) { .price { width: 80px; } }
 .wish .box { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; padding: 0; border: 2px solid var(--border-strong); background: transparent; display: flex; align-items: center; justify-content: center; color: #fff; }
 .wish.done .box { border-color: var(--c-blue); background: var(--c-blue); }
 .wish input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-size: 14px; color: var(--ink); }
