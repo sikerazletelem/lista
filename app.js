@@ -2,6 +2,7 @@ const SECTIONS = [
   { k: "mernoki", name: "Mérnöki", cls: "" },
   { k: "ingatlanpiaci", name: "Ingatlanpiaci", cls: "re" },
   { k: "maganeleti", name: "Magánéleti", cls: "me" },
+  { k: "napivasarlas", name: "Napi vásárlás", cls: "sh" },
 ];
 const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>';
 const CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';

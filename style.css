@@ -4,6 +4,7 @@
   --eng: #1F6F64; --eng-tint: #E4EFEC;
   --re: #B8823C;  --re-tint: #FBF3E3;
   --me: #3E7CB1;  --me-tint: #E6EFF7;
+  --sh: #A24B72;  --sh-tint: #F7EBF0;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -12,6 +13,7 @@
     --eng: #56B49F; --eng-tint: #17302B;
     --re: #DDAA63;  --re-tint: #2B2212;
     --me: #85B4DA;  --me-tint: #16232F;
+    --sh: #D287AC;  --sh-tint: #2E1D26;
   }
 }
 * { box-sizing: border-box; }
@@ -36,6 +38,7 @@ h1 { font: italic 500 30px/1 Georgia, "Times New Roman", serif; margin: 0 0 16px
 .block { --c: var(--eng); --t: var(--eng-tint); background: var(--surface); border: 2px solid var(--c); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
 .block.re { --c: var(--re); --t: var(--re-tint); }
 .block.me { --c: var(--me); --t: var(--me-tint); }
+.block.sh { --c: var(--sh); --t: var(--sh-tint); }
 
 .bhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--t); }
 .bhead h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--c); }
