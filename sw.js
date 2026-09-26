@@ -10,7 +10,8 @@
 // v6: sima, csúszó átrendezés.
 // v7: napi „Ma” kártya (napi.js) és a vasárnapi heti jelzés.
 // v8: új blokk: Napi vásárlás.
-const CACHE = "hid-lista-v8";
+// v9: a kipipálás ideje (doneAt) is mentődik.
+const CACHE = "hid-lista-v9";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "napi.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

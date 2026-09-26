@@ -80,7 +80,8 @@ document.addEventListener("click", (e) => {
   const blk = b.closest(".block"); if (!blk) return;
   const k = blk.id.slice(4), act = b.dataset.act, row = b.closest(".item");
   const it = row && items.find((x) => x.id === row.dataset.id);
-  if (act === "toggle" && it) save({ ...it, done: !it.done, updatedAt: Date.now() });
+  // doneAt: mikor lett kész (a későbbi elemzéshez; az updatedAt egy későbbi módosítással felülíródhat).
+  if (act === "toggle" && it) { const now = Date.now(); save({ ...it, done: !it.done, doneAt: it.done ? null : now, updatedAt: now }); }
   else if (act === "del" && it) save({ ...it, deleted: true, updatedAt: Date.now() });
   else if (act === "showdone") { showDone[k] = !showDone[k]; renderBlock(k); }
   else if (act === "clear") {
