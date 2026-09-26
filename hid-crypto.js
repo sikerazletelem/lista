@@ -27,18 +27,18 @@
     if (bits > 0) out += ALPHA[(acc << (5 - bits)) & 31];
     return out.match(/.{1,4}/g).join("-");
   }
-  function recoveryFromString(str) {
+  function recoveryFromString(str, n = 32, what = "helyreállítási kulcs") {
     const clean = str.toUpperCase().replace(/[^A-Z2-9]/g, "");
     let bits = 0, acc = 0;
     const out = [];
     for (const ch of clean) {
       const v = ALPHA.indexOf(ch);
-      if (v < 0) throw new Error("Érvénytelen helyreállítási kulcs.");
+      if (v < 0) throw new Error(`Érvénytelen ${what}.`);
       acc = (acc << 5) | v; bits += 5;
       if (bits >= 8) { out.push((acc >> (bits - 8)) & 255); bits -= 8; }
     }
-    if (out.length < 32) throw new Error("A helyreállítási kulcs túl rövid.");
-    return new Uint8Array(out.slice(0, 32));
+    if (out.length < n) throw new Error(`A ${what} túl rövid.`);
+    return new Uint8Array(out.slice(0, n));
   }
 
   async function passwordKey(password, salt, iter) {
@@ -123,5 +123,19 @@
     return JSON.parse(dec.decode(await open(aes, blob)));
   }
 
-  window.HidCrypto = { createKeys, unlockWithPassword, unlockWithRecovery, changePassword, resetPassword, importPublicKey, encryptItem, decryptItem, ITER };
+  // Vásárlási lista: külön, kicsi (AES-128-GCM) „lista-kulcs”, amit a telefon is ismer. A telefon
+  // egy párosító kóddal (26 karakter) kapja meg egyszer; a laptop a fő kulccsal becsomagolva tárolja.
+  // Ez a kulcs CSAK a vásárlási listát nyitja, a többi adatot továbbra is a fő kulcs védi.
+  const newListKey = () => rand(16);
+  const listCode = (bytes) => recoveryToString(bytes);
+  const listBytes = (code) => recoveryFromString(code, 16, "párosító kód");
+  const importListKey = (bytes) => subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+  async function sealObj(key, obj) {
+    const box = await seal(key, enc.encode(JSON.stringify(obj)));
+    return { v: 2, iv: box.iv, ct: box.ct };
+  }
+  const openObj = async (key, box) => JSON.parse(dec.decode(await open(key, box)));
+
+  window.HidCrypto = { createKeys, unlockWithPassword, unlockWithRecovery, changePassword, resetPassword, importPublicKey, encryptItem, decryptItem,
+    newListKey, listCode, listBytes, importListKey, sealObj, openObj, ITER };
 })();

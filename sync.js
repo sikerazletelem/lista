@@ -75,6 +75,8 @@ const Sync = (() => {
     },
     ready: () => !!(app && auth),
     isLoggedIn: () => !!user,
+    uid: () => (user ? user.uid : null),
+    db: () => db, // a vásárlási listának (vasarlas.js), ami saját kulccsal olvas és ír
     email: () => (user ? user.email : null),
     async login(email, password) {
       if (!ensureFirebase()) throw new Error("A szinkron most nem érhető el (nincs internet?).");

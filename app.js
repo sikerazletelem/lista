@@ -277,6 +277,7 @@ try {
       renderSync(state);
       if (state && state.loggedIn) syncFlush();
       if (typeof Napi !== "undefined") { Napi.render(); if (state && state.loggedIn) Napi.flush(); }
+      if (typeof Vasarlas !== "undefined") Vasarlas.onAuth(state);
     });
     renderSync({ loggedIn: Sync.isLoggedIn(), email: Sync.email() });
   }
