@@ -87,7 +87,9 @@
     { k: "mernoki", label: "Mérnöki", c: "green" },
     { k: "ingatlanpiaci", label: "Ingatlanpiaci", c: "gold" },
     { k: "maganeleti", label: "Magánéleti", c: "blue" },
+    { k: "napivasarlas", label: "Napi vásárlás", c: "purple" },
   ];
+  const BLOCK_ICON = { mernoki: "route", ingatlanpiaci: "sparkle", maganeleti: "heart", napivasarlas: "list" };
 
   // ---------- ikonok (a Híd kézzel rajzolt vonalas ikonjai) ----------
   const ICONS = {
@@ -566,7 +568,7 @@
       else if (daysBetween(h.lastAddressed, sunday) >= A.healthDays) alerts.push(`Egészség, „${h.label}”: ${daysBetween(h.lastAddressed, sunday)} napja nem foglalkoztál vele.`);
     }
     // Telefonos listák: nyitott tételek, amikhez hetek óta nem nyúltál.
-    for (const b of BLOCKS.filter((x) => x.k !== "maganeleti")) {
+    for (const b of BLOCKS.filter((x) => x.k === "mernoki" || x.k === "ingatlanpiaci")) {
       const list = [...items.values()].filter((i) => !i.error && !i.deleted && i.block === b.k);
       const open = list.filter((i) => !i.done).length, last = Math.max(0, ...list.map((i) => i.updatedAt || 0));
       if (open && Date.now() - last >= span * 86400000) alerts.push(`${b.label} lista: ${open} nyitott tétel, ${A.idleWeeks} hete egyikhez sem nyúltál.`);
@@ -654,6 +656,44 @@
       <circle cx="${cx}" cy="${cy}" r="${innerR - 6}" fill="var(--ink)"/>
       <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="17" fill="var(--bg)" font-style="italic" class="font-display">7 nap</text>
       <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="10" fill="var(--faint)" class="font-data">${addDays(todayStr(), -6).slice(5).replace("-", ".")}–${todayStr().slice(5).replace("-", ".")}</text></svg>`;
+    return s;
+  }
+
+  // Teendő-kerék (Jegyzet fül): a telefonos blokkok terhelése. Itt fordított a logika:
+  // minél kisebb a szelet, annál jobb (a régi Híd képlete: nyitott tételek száma szerint 1–5,
+  // +1, ha van nyitott tétel, de egy hete egyikhez sem nyúltál).
+  function loadScore(s) {
+    const n = s.open.length;
+    const v = (n === 0 ? 1 : n <= 2 ? 2 : n <= 4 ? 3 : n <= 7 ? 4 : 5) + (n > 0 && s.editedThisWeek === 0 ? 1 : 0);
+    return Math.min(5, v);
+  }
+  function loadWheelSvg() {
+    const cx = 400, cy = 300, innerR = 58, maxR = 196, gap = 5, step = 360 / BLOCKS.length;
+    const rFor = (sc) => innerR + (maxR - innerR) * (sc / 5);
+    const pt = (r, a) => { const rad = (a * Math.PI) / 180; return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }; };
+    const wedge = (r, a1, a2) => {
+      const p1 = pt(innerR, a1), p2 = pt(r, a1), p3 = pt(r, a2), p4 = pt(innerR, a2);
+      return `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} A ${r} ${r} 0 0 1 ${p3.x} ${p3.y} L ${p4.x} ${p4.y} A ${innerR} ${innerR} 0 0 0 ${p1.x} ${p1.y} Z`;
+    };
+    let s = `<svg class="wheel" viewBox="0 0 800 600" role="img" aria-label="Teendő-kerék: minél kisebb a szelet, annál kevesebb a nyitott feladat">`;
+    [1, 2, 3, 4, 5].forEach((l) => { s += `<circle cx="${cx}" cy="${cy}" r="${rFor(l)}" fill="none" stroke="var(--border)"/>`; });
+    BLOCKS.forEach((b, i) => {
+      const sum = todoSummary(b.k), sc = loadScore(sum);
+      const a = -90 + step / 2 + i * step, r = rFor(sc);
+      const bp = pt(Math.max(r - 18, innerR + 10), a), lp = pt(maxR + 30, a);
+      const cos = Math.cos((a * Math.PI) / 180);
+      const anchor = Math.abs(cos) < 0.2 ? "middle" : cos > 0 ? "start" : "end";
+      const ly = lp.y + (Math.abs(cos) < 0.2 ? (lp.y < cy ? -14 : 6) : -6);
+      s += `<g class="wedge" data-act="toBlock" data-v="${b.k}">
+        <path d="${wedge(r, a - step / 2 + gap / 2, a + step / 2 - gap / 2)}" fill="var(--c-${b.c}-tint)" stroke="var(--c-${b.c})" stroke-width="1.8"/>
+        <circle cx="${bp.x}" cy="${bp.y}" r="11" fill="var(--c-${b.c})"/>
+        <text x="${bp.x}" y="${bp.y + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" class="font-data">${sc}</text>
+        <text x="${lp.x}" y="${ly}" text-anchor="${anchor}" class="wl">${esc(b.label)}</text>
+        <text x="${lp.x}" y="${ly + 21}" text-anchor="${anchor}" class="ws font-data" style="fill:var(--c-${b.c})">${sum.open.length} nyitott${sum.open.length && !sum.editedThisWeek ? " · áll egy hete" : ""}</text>
+      </g>`;
+    });
+    s += `<circle cx="${cx}" cy="${cy}" r="${innerR - 6}" fill="var(--ink)"/>
+      <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="17" fill="var(--bg)" font-style="italic" class="font-display">Teendők</text></svg>`;
     return s;
   }
 
@@ -909,12 +949,14 @@
         const open = live.filter((i) => !i.done).sort((x, y) => key(x) - key(y));
         const done = live.filter((i) => i.done).sort((x, y) => y.updatedAt - x.updatedAt);
         const row = (i) => `<div class="note-row${i.done ? " done" : ""}"><span class="box">${i.done ? icon("check", "icon icon-sm") : ""}</span><span class="note-t">${esc(i.text)}</span><time class="font-data">${fmtStamp(i.updatedAt)}</time></div>`;
-        return `<div class="block" style="--c:var(--c-${b.c});--t:var(--c-${b.c}-tint)">
+        return `<div class="block" id="blk-${b.k}" style="--c:var(--c-${b.c});--t:var(--c-${b.c}-tint)">
           <div class="block-h"><span>${b.label}</span><span class="font-data">${open.length} nyitott</span></div>
           <div class="block-b">${open.length ? open.map(row).join("") : `<div class="empty">Nincs nyitott tétel.</div>`}${jegyzetDone ? done.map(row).join("") : ""}</div>
         </div>`;
       }).join("");
       return `<div class="stack">
+        <div>${eyebrow("Teendő-kerék — mennyi van nyitva")}<div class="card wheel-card">${loadWheelSvg()}
+          <p class="wheel-note">Itt fordított a logika: minél kisebb a szelet, annál jobb. A szám (1–5) a nyitott tételek mennyisége szerint nő, és eggyel több, ha egy hete egyikhez sem nyúltál.</p></div></div>
         <p class="desc">A telefonos lista tételei, visszafejtve. Itt csak olvashatók — szerkeszteni a telefonon lehet. Élőben frissül.</p>
         <label class="chk"><input type="checkbox" data-act="toggleDone" ${jegyzetDone ? "checked" : ""}> Kész tételek mutatása</label>
         ${bad ? `<p class="bad">${bad} tételt nem sikerült visszafejteni.</p>` : ""}
@@ -1006,6 +1048,7 @@
       case "add": addTo(b.dataset.list, $(`[data-add-input="${b.dataset.list}"]`).value); break;
       case "ci": setCheck(b.dataset.f, v); break;
       case "logDay": logDay = v; render(); break;
+      case "toBlock": { const n = document.getElementById("blk-" + v); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }); break; }
       case "planSocial": editPlan((p) => { const n = Number(v); p.socialDays = p.socialDays.includes(n) ? p.socialDays.filter((x) => x !== n) : [...p.socialDays, n].sort(); }); break;
       case "print": window.print(); break;
       case "mgDone": mutate((s) => { s.mediumGoalStatus = { achieved: true, achievedDate: todayStr() }; }); break;
@@ -1164,7 +1207,7 @@
     state.income = { mernoki: 450000, ingatlanpiaci: 120000 };
     state.wishlist = [{ id: "w1", text: "Első", done: false, price: 12 }, { id: "w2", text: "Második", done: true, price: 8 }, { id: "w3", text: "Harmadik", done: false }];
     const now = Date.now();
-    [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false]]
+    [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false], ["napivasarlas", "Tej", false], ["napivasarlas", "Kenyér", false], ["napivasarlas", "Tojás", false]]
       .forEach(([block, text, done], i) => items.set("d" + i, { id: "d" + i, block, text, done, deleted: false, updatedAt: now - i * 3600000 }));
     // Kitalált napi kártyák az elmúlt 4 hétre (mintha a telefonról jöttek volna).
     const today = todayStr();
