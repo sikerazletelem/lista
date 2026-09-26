@@ -178,6 +178,11 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .wish-bar i { display: block; height: 100%; background: var(--c-blue); border-radius: 3px; }
 @media (max-width: 480px) { .price { width: 80px; } }
 .wish .box { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; padding: 0; border: 2px solid var(--border-strong); background: transparent; display: flex; align-items: center; justify-content: center; color: #fff; }
+.wish span.grip { cursor: default; }
+.shop-box { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+.shop-box .btn { margin-top: 10px; }
+.shop-box p.small { margin: 6px 0 0; line-height: 1.5; }
+.pair-code { font-size: 20px; letter-spacing: .06em; padding: 10px 12px; margin: 8px 0 4px; border-radius: 10px; background: var(--surface); border: 1px dashed var(--border-strong); text-align: center; user-select: all; overflow-wrap: anywhere; }
 .wish.done .box { border-color: var(--c-blue); background: var(--c-blue); }
 .wish input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-size: 14px; color: var(--ink); }
 .wish.done input { color: var(--faint); text-decoration: line-through; }

@@ -213,6 +213,7 @@
 
   let user = null, publicKey = null, keyfile = null, privateKey = null, remembered = false;
   let state = null, items = new Map(), phoneDays = new Map();
+  let listKey = null, shopItems = new Map(), shopState = "unknown", shopCode = null, showCode = false, unsubShop = null;
   let itemsLoaded = false, daysLoaded = false, logDay = null, reportWeek = null, planOpen = false;
   let unsubItems = null, unsubState = null, unsubDays = null, idleTimer = null, saveTimer = null, lastSavedAt = 0, savePromise = null;
   let tab = "overview", jegyzetDone = false;
@@ -282,6 +283,9 @@
   // forget=true: a gépen megjegyzett kulcsot is törli (Zárolás gomb, kijelentkezés).
   async function lock(forget) {
     await flushSave();
+    await Promise.all(Object.keys(shopTimers).map((id) => { clearTimeout(shopTimers[id]); delete shopTimers[id]; return shopPut(shopItems.get(id)); }));
+    if (unsubShop) { unsubShop(); unsubShop = null; }
+    listKey = null; shopItems = new Map(); shopState = "unknown"; shopCode = null; showCode = false;
     if (unsubItems) { unsubItems(); unsubItems = null; }
     if (unsubState) { unsubState(); unsubState = null; }
     if (unsubDays) { unsubDays(); unsubDays = null; }
@@ -370,6 +374,8 @@
       daysLoaded = true;
       if (state && !isTyping()) render();
     }, () => { daysLoaded = true; });
+
+    loadShop(key);
   }
   const isTyping = () => { const a = document.activeElement; return a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && a.type !== "checkbox")); };
 
@@ -705,11 +711,141 @@
     return `<div class="rest-display" style="--c:var(--c-${r.c});--t:var(--c-${r.c}-tint);--x:var(--c-${r.c}-text)">${icon(r.icon)} ${r.label}</div>`;
   }
 
+  // ---------- vásárlási lista ----------
+  // Két tárolási mód: régen a hidstate-ben (state.wishlist, csak a laptop látta), a „telefonra
+  // kapcsolás” után a users/{uid}/shop/{id} dokumentumokban, a külön lista-kulccsal titkosítva,
+  // hogy a párosított telefon is olvashassa és pipálhassa. A kész tételek mindig a lista alján.
+  const shopOn = () => shopState === "on";
+  function wishList() {
+    if (!shopOn()) return [...state.wishlist.filter((w) => !w.done), ...state.wishlist.filter((w) => w.done)];
+    const live = [...shopItems.values()].filter((w) => !w.deleted);
+    return [
+      ...live.filter((w) => !w.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+      ...live.filter((w) => w.done).sort((a, b) => (a.doneAt || 0) - (b.doneAt || 0)),
+    ];
+  }
+  const SHOP_FIELDS = ["text", "price", "done", "doneAt", "order", "deleted"];
+  async function shopPut(w) {
+    const now = Date.now();
+    const rec = { ...w, updatedAt: now };
+    shopItems.set(w.id, rec);
+    if (DEMO) return;
+    try {
+      const body = Object.fromEntries(SHOP_FIELDS.map((f) => [f, rec[f] ?? null]));
+      const blob = await HidCrypto.sealObj(listKey, body);
+      await userRef().collection("shop").doc(w.id).set({ updatedAt: now, blob });
+    } catch { flash("A vásárlási lista mentése nem sikerült — próbáld újra.", 4000); }
+  }
+  const shopTimers = {};
+  function shopPutLater(w) { // gépelés közben: helyben azonnal, a felhőbe kis késéssel
+    shopItems.set(w.id, w);
+    clearTimeout(shopTimers[w.id]);
+    shopTimers[w.id] = setTimeout(() => { delete shopTimers[w.id]; shopPut(shopItems.get(w.id)); }, 600);
+  }
+  const Wish = {
+    add(text) {
+      if (!shopOn()) return mutate((s) => { s.wishlist.push({ id: newId(), text, done: false }); });
+      const max = Math.max(-1, ...wishList().filter((w) => !w.done).map((w) => w.order ?? 0));
+      shopPut({ id: newId(), text, price: null, done: false, doneAt: null, order: max + 1, deleted: false }).then(render);
+      render();
+    },
+    toggle(id) {
+      if (!shopOn()) return mutate((s) => { const w = s.wishlist.find((x) => x.id === id); w.done = !w.done; w.doneAt = w.done ? todayStr() : null; });
+      const w = shopItems.get(id); if (!w) return;
+      shopPut({ ...w, done: !w.done, doneAt: w.done ? null : Date.now() }); render();
+    },
+    remove(id) {
+      if (!shopOn()) return mutate((s) => { s.wishlist = s.wishlist.filter((x) => x.id !== id); });
+      const w = shopItems.get(id); if (!w) return;
+      shopPut({ ...w, deleted: true }); render(); // törlésjelölő, hogy a telefonról is eltűnjön
+    },
+    edit(id, patch) {
+      if (!shopOn()) return mutate((s) => { const w = s.wishlist.find((x) => x.id === id); if (w) Object.assign(w, patch); }, false);
+      const w = shopItems.get(id); if (w) shopPutLater({ ...w, ...patch });
+    },
+    reorder(ids) { // ids: a nyitott tételek új sorrendje
+      if (!shopOn()) return mutate((s) => { const byId = new Map(s.wishlist.map((w) => [w.id, w])); s.wishlist = [...ids.map((i) => byId.get(i)), ...s.wishlist.filter((w) => w.done)].filter(Boolean); });
+      ids.forEach((id, i) => { const w = shopItems.get(id); if (w && w.order !== i) shopPut({ ...w, order: i }); });
+      render();
+    },
+  };
+
+  // A lista-kulcs betöltése (ha már be van kapcsolva), majd a tételek élő figyelése.
+  async function loadShop(key) {
+    try {
+      const snap = await userRef().collection("meta").doc("listkey").get();
+      if (key !== privateKey) return;
+      if (!snap.exists) { shopState = "none"; if (state) render(); return; }
+      const { code } = await HidCrypto.decryptItem(key, snap.data().wrapped);
+      listKey = await HidCrypto.importListKey(HidCrypto.listBytes(code));
+      shopCode = code;
+      subscribeShop(key);
+    } catch { if (key === privateKey) { shopState = "error"; if (state) render(); } }
+  }
+  function subscribeShop(key) {
+    unsubShop = userRef().collection("shop").onSnapshot(async (snap) => {
+      if (key !== privateKey) return;
+      await Promise.all(snap.docChanges().map(async (ch) => {
+        const id = ch.doc.id;
+        if (ch.type === "removed") return shopItems.delete(id);
+        const d = ch.doc.data();
+        if (shopTimers[id]) return; // épp gépelsz benne: a helyi változat a frissebb
+        try { shopItems.set(id, { id, ...(await HidCrypto.openObj(listKey, d.blob)), updatedAt: d.updatedAt }); } catch { /* sérült tétel: kihagyjuk */ }
+      }));
+      if (key !== privateKey) return;
+      shopState = "on";
+      if (state && tab === "paths" && !isTyping()) render();
+    }, () => { shopState = "error"; if (state) render(); });
+  }
+  // Bekapcsolás: új lista-kulcs, a meglévő tételek átköltöztetése, párosító kód a telefonhoz.
+  async function setupShop() {
+    if (!confirm("A vásárlási lista átkerül egy külön lista-kulccsal titkosított helyre, amit a párosított telefon is olvashat és pipálhat. A többi adatod továbbra is csak a fő kulccsal nyitható. Folytatod?")) return;
+    try {
+      if (!DEMO) {
+        const exists = await userRef().collection("meta").doc("listkey").get();
+        if (exists.exists) { flash("Már be van kapcsolva (egy másik eszközön). Betöltöm.", 4000); return loadShop(privateKey); }
+      }
+      const bytes = HidCrypto.newListKey(), code = HidCrypto.listCode(bytes);
+      listKey = await HidCrypto.importListKey(bytes);
+      if (!DEMO) {
+        const wrapped = await HidCrypto.encryptItem(publicKey, { code });
+        const check = await HidCrypto.sealObj(listKey, { ok: "hid-vasarlas" });
+        await userRef().collection("meta").doc("listkey").set({ createdAt: Date.now(), wrapped, check });
+      }
+      shopCode = code;
+      const old = wishList(); // nyitottak, majd a kész tételek
+      const base = Date.now() - old.length;
+      await Promise.all(old.map((w, i) => shopPut({ id: w.id, text: w.text, price: w.price ?? null, done: !!w.done, doneAt: w.done ? base + i : null, order: i, deleted: false })));
+      shopState = "on"; showCode = true;
+      mutate((s) => { s.wishlistMovedAt = Date.now(); }); // a régi lista tartalékként megmarad a hidstate-ben
+      if (!DEMO) subscribeShop(privateKey);
+      flash("Kész. Most párosítsd a telefont a lenti kóddal.", 5000);
+    } catch (e) { flash("Nem sikerült bekapcsolni: " + e.message, 6000); }
+  }
+
+  function shopBoxHtml() {
+    if (shopState === "error") return `<p class="small bad">A telefonos vásárlási lista nem érhető el (nincs internet, vagy nem sikerült visszafejteni).</p>`;
+    if (shopState === "none") return `<div class="shop-box">
+        <div class="suggest-h">${icon("route", "icon icon-sm")} Legyen elérhető a telefonon is</div>
+        <p class="small">Itt írod be a tételeket, a telefonon pipálod ki, amikor megvetted. A lista egy külön lista-kulccsal lesz titkosítva, amit a telefon is ismer; a többi adatodat továbbra is csak a fő kulcs nyitja.</p>
+        <button class="btn btn-dark" data-act="shopSetup">Bekapcsolás és telefon párosítása</button></div>`;
+    if (shopState !== "on") return "";
+    return `<div class="shop-box">
+        ${showCode
+          ? `<div class="suggest-h">Párosító kód a telefonhoz</div>
+             <div class="pair-code font-data">${esc(shopCode || "")}</div>
+             <p class="small">A telefonos appban a Vásárlási lista blokkban írd be ezt a kódot (egyszer kell). Ne oszd meg senkivel: aki ismeri, a vásárlási listádat látja (mást nem).</p>
+             <button class="link" data-act="shopCode">Kód elrejtése</button>`
+          : `<span class="small">A lista a párosított telefonnal szinkronban van. </span><button class="link" data-act="shopCode">Párosító kód megjelenítése</button>`}
+      </div>`;
+  }
+
   // Vásárlási lista összesítő: ami még hátra van, ami megvan, és egy sáv az arányukról.
   // Az összegek ezer forintban ("k") értendők: 25 = 25 000 Ft.
   function wishTotalHtml() {
     const sum = (arr) => arr.reduce((a, w) => a + (Number(w.price) || 0), 0);
-    const left = sum(state.wishlist.filter((w) => !w.done)), bought = sum(state.wishlist.filter((w) => w.done)), all = left + bought;
+    const list = wishList();
+    const left = sum(list.filter((w) => !w.done)), bought = sum(list.filter((w) => w.done)), all = left + bought;
     if (!all) return "";
     const k = (n) => (Math.round(n * 10) / 10).toLocaleString("hu-HU") + "k";
     return `<div class="wish-total">
@@ -880,17 +1016,19 @@
     },
 
     paths() {
-      const wishes = state.wishlist.length ? state.wishlist.map((w) => `
+      const wl = wishList();
+      const wishes = wl.length ? wl.map((w) => `
         <div class="wish${w.done ? " done" : ""}" data-id="${w.id}">
-          <button class="grip" data-drag="wish" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${icon("grip", "icon")}</button>
+          ${w.done ? '<span class="grip" aria-hidden="true"></span>' : `<button class="grip" data-drag="wish" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${icon("grip", "icon")}</button>`}
           <button class="box" data-act="wishToggle" data-id="${w.id}" aria-label="Kész" aria-pressed="${w.done}">${w.done ? icon("check", "icon icon-sm") : ""}</button>
           <input value="${esc(w.text)}" data-wish="${w.id}" aria-label="Tétel szövege">
           <label class="price"><input type="number" inputmode="decimal" min="0" step="any" class="font-data" data-wish-price="${w.id}" value="${w.price ?? ""}" placeholder="0" aria-label="Összeg (ezer Ft)"><span>k</span></label>
           <button class="icon-btn" data-act="wishDel" data-id="${w.id}" aria-label="Törlés">${icon("trash", "icon icon-sm")}</button>
         </div>`).join("") : `<div class="empty">Még nincs tétel a listán.</div>`;
       return `<div class="stack">
-        ${card(eyebrow("Vásárlási lista", "blue") + `<p class="desc">Ruhák, cipők, asztal, csuklótáska… nem sürgős, de a terv része. Pipálható és szerkeszthető, máshoz nem kapcsolódik.</p>
-          <div class="stack tight wish-list">${wishes}</div><div id="wishTotal">${wishTotalHtml()}</div>${addRow("wish", "új tétel… (pl. téli cipő)", "blue")}`, "blue")}
+        ${card(eyebrow("Vásárlási lista", "blue") + `<p class="desc">Ruhák, cipők, asztal, csuklótáska… nem sürgős, de a terv része. Pipálható és szerkeszthető; a kész tételek a lista aljára kerülnek.</p>
+          ${shopState === "unknown" && !DEMO ? `<div class="empty">Betöltés…</div>` : `<div class="stack tight wish-list">${wishes}</div><div id="wishTotal">${wishTotalHtml()}</div>${addRow("wish", "új tétel… (pl. téli cipő)", "blue")}`}
+          ${shopBoxHtml()}`, "blue")}
         ${card(eyebrow("Nagyobb célok lebontása", "purple") + `<p class="desc">Ide írd le, hogyan bontod le a nagy és köztes célt konkrét, sorban követhető lépésekre.</p>
           <textarea class="field-input" rows="6" data-field="bigGoalsBreakdown" placeholder="pl. 1) diploma megszerzése → 2) projektvezetői váltás → 3) …">${esc(state.bigGoalsBreakdown)}</textarea>`, "purple")}
         ${card(eyebrow("Havi bevétel bevitele") + `<div class="two">
@@ -1000,8 +1138,8 @@
   function addTo(list, text) {
     const v = text.trim();
     if (!v) return;
-    mutate((s) => {
-      if (list === "wish") s.wishlist.push({ id: newId(), text: v, done: false });
+    if (list === "wish") Wish.add(v);
+    else mutate((s) => {
       if (list === "health") s.health.items.push({ id: newId(), label: v, lastAddressed: null });
       if (list === "presence") s.presence.items.push({ id: newId(), label: v });
       if (list === "idea") s.ideas.unshift({ id: newId(), text: v, date: todayStr(), status: "parkolva" });
@@ -1056,8 +1194,10 @@
       case "print": window.print(); break;
       case "mgDone": mutate((s) => { s.mediumGoalStatus = { achieved: true, achievedDate: todayStr() }; }); break;
       case "mgUndo": mutate((s) => { s.mediumGoalStatus = { achieved: false, achievedDate: null }; }); break;
-      case "wishToggle": mutate((s) => { const w = byId(s.wishlist); w.done = !w.done; w.doneAt = w.done ? todayStr() : null; }); break;
-      case "wishDel": mutate((s) => { s.wishlist = s.wishlist.filter((x) => x.id !== id); }); break;
+      case "wishToggle": Wish.toggle(id); break;
+      case "wishDel": Wish.remove(id); break;
+      case "shopSetup": setupShop(); break;
+      case "shopCode": showCode = !showCode; render(); break;
       case "healthDone": mutate((s) => { const h = byId(s.health.items), t = todayStr(); h.lastAddressed = t; h.log = [...new Set([...(h.log || []), t])]; }); break;
       case "healthDel": if (confirm("Törlöd ezt a területet?")) mutate((s) => { s.health.items = s.health.items.filter((x) => x.id !== id); }); break;
       case "presDel": if (confirm("Törlöd ezt az elvet?")) mutate((s) => { s.presence.items = s.presence.items.filter((x) => x.id !== id); }); break;
@@ -1088,9 +1228,9 @@
     } else if (t.dataset.planTarget) {
       editPlan((p) => { p.targets = { ...p.targets, [t.dataset.planTarget]: Math.max(0, Math.min(7, Number(t.value) || 0)) }; }, false);
     } else if (t.dataset.wish) {
-      mutate((s) => { const w = s.wishlist.find((x) => x.id === t.dataset.wish); if (w) w.text = t.value; }, false);
+      Wish.edit(t.dataset.wish, { text: t.value });
     } else if (t.dataset.wishPrice) {
-      mutate((s) => { const w = s.wishlist.find((x) => x.id === t.dataset.wishPrice); if (w) w.price = t.value === "" ? null : Math.max(0, Number(t.value)); }, false);
+      Wish.edit(t.dataset.wishPrice, { price: t.value === "" ? null : Math.max(0, Number(t.value)) });
       $("#wishTotal").innerHTML = wishTotalHtml();
     }
   });
@@ -1107,7 +1247,7 @@
   const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function saveWishOrder(ids, focusId) {
-    mutate((s) => { const byId = new Map(s.wishlist.map((w) => [w.id, w])); s.wishlist = ids.map((id) => byId.get(id)).filter(Boolean); });
+    Wish.reorder(ids);
     const g = $(`.wish[data-id="${focusId}"] .grip`); if (g) g.focus();
   }
 
@@ -1118,7 +1258,7 @@
     e.preventDefault();
     try { h.setPointerCapture(e.pointerId); } catch {}
     const row = h.closest(".wish");
-    const rows = [...row.parentElement.querySelectorAll(".wish")];
+    const rows = [...row.parentElement.querySelectorAll(".wish:not(.done)")]; // a kész tételek a helyükön maradnak (alul)
     const rects = rows.map((r) => r.getBoundingClientRect());
     const from = rows.indexOf(row);
     const gap = rows.length > 1 ? rects[1].top - rects[0].bottom : 0;
@@ -1181,7 +1321,7 @@
     const h = e.target.closest && e.target.closest("[data-drag]");
     if (!h || drag || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
     e.preventDefault();
-    const rows = [...h.closest(".wish-list").querySelectorAll(".wish")];
+    const rows = [...h.closest(".wish-list").querySelectorAll(".wish:not(.done)")];
     const row = h.closest(".wish"), from = rows.indexOf(row), to = from + (e.key === "ArrowUp" ? -1 : 1);
     if (to < 0 || to >= rows.length) return;
     const before = new Map(rows.map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
@@ -1189,7 +1329,7 @@
     ids.splice(to, 0, ids.splice(from, 1)[0]);
     saveWishOrder(ids, row.dataset.id);
     if (reduceMotion()) return;
-    document.querySelectorAll(".wish-list .wish").forEach((r) => {
+    document.querySelectorAll(".wish-list .wish:not(.done)").forEach((r) => {
       const d = before.get(r.dataset.id) - r.getBoundingClientRect().top;
       if (!d) return;
       r.style.transform = `translateY(${d}px)`;
@@ -1232,6 +1372,7 @@
       phoneDays.set(d, e);
     }
     itemsLoaded = true; daysLoaded = true;
+    shopState = "none"; // a demóban a „Bekapcsolás” gomb csak a memóriában költözteti át a listát
     prepareState();
     show("app");
     $("#today").textContent = fmtDate(todayStr());
