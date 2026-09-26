@@ -72,6 +72,29 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .doneBar button { background: none; border: 0; font: inherit; font-size: 13px; color: var(--muted); padding: 8px 4px; cursor: pointer; }
 .doneBar .clear { color: var(--faint); }
 
+/* heti kiértékelés jelzés (vasárnap 16:00-tól) */
+.heti { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 10px 12px 10px 14px; border-radius: 12px; background: var(--eng-tint); color: var(--eng); font-size: 14px; font-weight: 600; }
+.heti span { flex: 1; }
+.heti a { color: #fff; background: var(--eng); text-decoration: none; padding: 8px 14px; border-radius: 10px; }
+.heti button { background: none; border: 0; color: var(--eng); font-size: 22px; line-height: 1; padding: 4px 6px; cursor: pointer; }
+
+/* napi kártya (a blokkok alatt) */
+#napi { margin-top: 16px; }
+.block.napi { --c: var(--muted); --t: var(--surface-2); }
+.napi .bhead { flex-wrap: wrap; }
+.napi .daypick { display: flex; gap: 6px; }
+.napi .daypick button { font: inherit; font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+.napi .daypick button.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.napi-b { padding: 4px 14px 14px; }
+.napi .q { margin-top: 14px; }
+.napi .q-l { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.napi .q-l span { font-weight: 400; font-size: 12px; color: var(--faint); }
+.napi .q-sub { margin-top: 14px; padding: 2px 12px 12px; border-radius: 12px; background: var(--me-tint); }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt { font: inherit; font-size: 14px; min-height: 42px; min-width: 42px; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
+.opt.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.napi-status { margin-top: 14px; font-size: 12px; color: var(--faint); }
+
 button:focus-visible, input:focus-visible { outline: 2px solid var(--c, var(--eng)); outline-offset: 1px; }
 svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: no-preference) { .box { transition: background-color .12s, border-color .12s; } }

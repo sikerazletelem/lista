@@ -271,7 +271,11 @@ window.addEventListener("online", syncFlush);
 try {
   if (hasSync()) {
     // Bejelentkezett állapotban (az app indulásakor is) felküldjük, ami még nincs fent.
-    Sync.init((state) => { renderSync(state); if (state && state.loggedIn) syncFlush(); });
+    Sync.init((state) => {
+      renderSync(state);
+      if (state && state.loggedIn) syncFlush();
+      if (typeof Napi !== "undefined") { Napi.render(); if (state && state.loggedIn) Napi.flush(); }
+    });
     renderSync({ loggedIn: Sync.isLoggedIn(), email: Sync.email() });
   }
 } catch (e) {}

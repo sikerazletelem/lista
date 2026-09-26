@@ -9,6 +9,7 @@
 // Firestore-adatszerkezet:
 //   users/{uid}/meta/keys        -> { publicKey, keyfile, createdAt }
 //   users/{uid}/items/{itemId}   -> { updatedAt, blob }   (blob = HidCrypto.encryptItem eredménye)
+//   users/{uid}/days/{nap}       -> { updatedAt, blob }   (a napi „Ma” kártya, napi.js)
 const Sync = (() => {
   const PENDING_KEY = "hid-sync-pending";
   const PUBKEY_KEY = "hid-sync-pubkey";
@@ -105,5 +106,17 @@ const Sync = (() => {
       }
     },
     pendingCount: () => pending().length,
+    // Egy tetszőleges objektum titkosított felküldése (pl. days/{nap}). Igazat ad, ha sikerült;
+    // ha nincs net, bejelentkezés vagy kulcs, hamisat — a hívó később újrapróbálja.
+    async putEncrypted(col, id, obj, updatedAt) {
+      if (!navigator.onLine || !user) return false;
+      const pub = await loadPublicKey().catch(() => null);
+      if (!pub) return false;
+      try {
+        const blob = await HidCrypto.encryptItem(pub, obj);
+        await db.collection("users").doc(user.uid).collection(col).doc(id).set({ updatedAt, blob });
+        return true;
+      } catch (e) { return false; }
+    },
   };
 })();

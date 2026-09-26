@@ -8,8 +8,9 @@
 // v4: a tételek sorrendje a fogantyúval átrendezhető (order mező).
 // v5: csak a lista saját fájljait tárolja (a Firebase-t és a Kiértékelőt nem).
 // v6: sima, csúszó átrendezés.
-const CACHE = "hid-lista-v6";
-const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+// v7: napi „Ma” kártya (napi.js) és a vasárnapi heti jelzés.
+const CACHE = "hid-lista-v7";
+const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "napi.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   // cache: "reload": a böngésző HTTP-gyorsítótárát megkerülve a friss fájlokat tölti le.
