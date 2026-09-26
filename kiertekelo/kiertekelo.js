@@ -349,7 +349,7 @@
         const d = ch.doc.data();
         try {
           const o = await HidCrypto.decryptItem(key, d.blob);
-          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, deleted: !!o.deleted, order: o.order, updatedAt: d.updatedAt });
+          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, doneAt: o.doneAt ?? null, deleted: !!o.deleted, order: o.order, updatedAt: d.updatedAt });
         } catch { items.set(id, { id, error: true, updatedAt: d.updatedAt }); }
       }));
       if (key !== privateKey) return;
@@ -590,7 +590,9 @@
     const month = incomeMonthKey(parseDay(sunday));
     const inc = month === state.incomeMonth ? state.income : state.incomeHistory[month];
     const income = { month, open: month === state.incomeMonth, total: inc ? (Number(inc.mernoki) || 0) + (Number(inc.ingatlanpiaci) || 0) : null };
-    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, targets: plan.targets, ...st, energyPrev, income, alerts, ok };
+    // A teendő-kerék állapota (nyitott tételek blokkonként), hogy később látszódjon az íve.
+    const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, score: loadScore(s) }]; }));
+    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, targets: plan.targets, ...st, energyPrev, income, todos, alerts, ok };
   }
 
   function derived() {
@@ -760,6 +762,7 @@
            <p class="small">Sokat vitt el: idő ${s.cost.ido} · pénz ${s.cost.penz} · fókusz ${s.cost.fokusz} alkalommal</p>`
         : `<p class="small">Ezen a héten nem volt jelölt társas alkalom.</p>`, "purple")}
       ${sec(`Bevétel · ${fmtMonth(inc.month)}`, inc.total == null ? `<p class="small">Nincs adat erre a hónapra.</p>` : `<p><b class="font-data">${fmtHUF(inc.total)}</b> — ${incomeLevel(inc.total)}${inc.open ? " (a hónap még tartott, amikor ez készült)" : ""}.</p>`)}
+      ${r.todos ? sec("Nyitott teendők a hét végén", `<div class="r-kv">${BLOCKS.map((b) => `<span><i style="background:var(--c-${b.c})"></i>${b.label} <b class="font-data">${r.todos[b.k] ? r.todos[b.k].open : 0}</b></span>`).join("")}</div>`, "gold") : ""}
       ${sec("Figyelmet kér", r.alerts.length ? `<ul class="r-list r-alerts">${r.alerts.map((a) => `<li>${icon("alert", "icon icon-sm")} ${esc(a)}</li>`).join("")}</ul>` : `<p class="small">Nincs jelzés ezen a héten.</p>`, "danger")}
       ${r.ok.length ? sec("Rendben", `<p>${icon("check", "icon icon-sm")} ${r.ok.join(", ")}</p>`) : ""}
     </article>`;
