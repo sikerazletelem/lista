@@ -150,6 +150,8 @@
   const fmtDate = (s) => (s ? new Date(s + "T00:00:00").toLocaleDateString("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit" }) : "");
   const fmtStamp = (t) => (t ? new Date(t).toLocaleString("hu-HU", { dateStyle: "short", timeStyle: "short" }) : "");
   const fmtHUF = (n) => (Number(n) || 0).toLocaleString("hu-HU") + " Ft";
+  // Ezres tagolás szóközzel (550000 → "550 000"); 0 vagy üres → üres mező.
+  const fmtThousands = (n) => (Number(n) ? String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g, " ") : "");
   const daysSince = (s) => (s ? Math.round((new Date(todayStr() + "T00:00:00") - new Date(s + "T00:00:00")) / 86400000) : null);
   const pct = (v) => Math.min(100, Math.max(0, (v / SCALE_MAX) * 100));
   function weekKey(d = new Date()) {
@@ -941,12 +943,12 @@
         ${card(eyebrow("Ezen a héten — teendők", "gold") + `<div class="two">${weekly}</div>`, "gold")}
         ${card(`${eyebrow(`Havi bevétel a küszöbökhöz képest · ${fmtMonth(state.incomeMonth)}`)}
           <div class="incbar">
-            <div style="left:${pct(THRESHOLDS.MID_LOW)}%;width:${pct(THRESHOLDS.MID_HIGH) - pct(THRESHOLDS.MID_LOW)}%;background:var(--c-gold-tint)"></div>
             <div style="left:0;width:${pct(D.totalIncome)}%;background:var(--c-green);opacity:.85"></div>
+            <div class="inc-mid" style="left:${pct(THRESHOLDS.MID_LOW)}%;width:${pct(THRESHOLDS.MID_HIGH) - pct(THRESHOLDS.MID_LOW)}%"></div>
             <div style="left:${pct(THRESHOLDS.MIN)}%;width:2px;background:var(--c-danger)"></div>
             <div style="left:${pct(THRESHOLDS.BIG)}%;width:2px;background:var(--ink)"></div>
           </div>
-          <div class="inc-legend font-data"><span>0</span><span>min. ${fmtHUF(THRESHOLDS.MIN)}</span><span>köztes ${fmtHUF(THRESHOLDS.MID_LOW)}–${fmtHUF(THRESHOLDS.MID_HIGH)}</span><span>nagy cél ${fmtHUF(THRESHOLDS.BIG)}</span></div>
+          <div class="inc-legend font-data"><span>0</span><span>min. ${fmtHUF(THRESHOLDS.MIN)}</span><span class="inc-mid-l">köztes ${fmtHUF(THRESHOLDS.MID_LOW)}–${fmtHUF(THRESHOLDS.MID_HIGH)}</span><span>nagy cél ${fmtHUF(THRESHOLDS.BIG)}</span></div>
           <div class="inc-total">Jelenlegi összeg: ${fmtHUF(D.totalIncome)}</div>`)}
         ${card(eyebrow("Mai állapot") + restDisplay(D.restToday))}
         ${D.mgs.achieved && D.mgDays !== null && D.mgDays < REMINDER_DELAY_DAYS ? card(`<div class="celebrate">${icon("party")} Ezt megcsináltad, élvezd ki.</div>`, null, 'style="background:var(--c-gold-tint);border-color:var(--c-gold)"') : ""}
@@ -986,20 +988,30 @@
         ${tarsas ? `<div class="q-sub">${q("Társas: visz valamerre?", Object.entries(IRANY).map(([v, l]) => btn("irany", v, l, ci.irany === v)).join(""))}
           ${q("Mit vitt el sokat? <span class=\"small\">(nem kötelező)</span>", Object.entries(COST).map(([v, l]) => btn("cost", v, l, has("cost", v))).join(""))}
           ${!planFor(day).socialDays.includes(isoDow(day)) ? `<p class="small">Ez terven kívüli társas este (a terved szerint ${planFor(day).socialDays.map((n) => WEEKDAYS[n].toLowerCase()).join(", ")} a társas nap).</p>` : ""}</div>` : ""}`;
-      // Az elmúlt 4 hét egy pillantásra: napi állapot és energia.
-      const days = Array.from({ length: 28 }, (_, i) => addDays(today, i - 27));
+      // Az elmúlt 4 hét hetekre bontva (hétfőtől vasárnapig): napi állapot és alatta az energia.
+      const monday = addDays(today, 1 - isoDow(today));
       const counts = { pihenes: 0, dolgoztam: 0, menekules: 0 };
-      const cis = days.map((d) => [d, checkin(d)]);
-      const dots = cis.map(([d, c]) => {
-        const v = c.rest; if (v) counts[v]++;
-        return `<span class="dot" title="${fmtDate(d)}${v ? " — " + REST[v].label : ""}" style="background:${v ? `var(--c-${REST[v].c})` : "var(--surface-2)"}"></span>`;
+      const head = `<div class="wk wk-head"><span></span>${Object.values(WEEKDAYS).map((w) => `<span>${w.slice(0, w === "Szerda" || w === "Szombat" ? 3 : w === "Csütörtök" ? 2 : 1)}</span>`).join("")}</div>`;
+      const weeks = [3, 2, 1, 0].map((back) => {
+        const mon = addDays(monday, -7 * back);
+        const en = [];
+        const cells = Array.from({ length: 7 }, (_, i) => {
+          const d = addDays(mon, i);
+          if (d > today) return `<span class="wk-day future"><span class="dot"></span><span class="ebar"></span></span>`;
+          const c = checkin(d), v = c.rest;
+          if (v) counts[v]++;
+          if (c.energy) en.push(c.energy);
+          return `<span class="wk-day${d === today ? " today" : ""}" title="${fmtDate(d)}${v ? " — " + REST[v].label : ""}${c.energy ? " — energia " + c.energy : ""}">
+            <span class="dot" style="background:${v ? `var(--c-${REST[v].c})` : "var(--surface-2)"}"></span>
+            <span class="ebar"><i style="height:${(c.energy || 0) * 20}%"></i></span></span>`;
+        }).join("");
+        const avg = en.length ? round1(en.reduce((a, b) => a + b, 0) / en.length) : null;
+        return `<div class="wk"><div class="wk-l"><b>${back === 0 ? "Ez a hét" : weekRange(mon)}</b>${back === 0 ? `<span class="small">${weekRange(mon)}</span>` : ""}<span class="small">energia átlag: <b class="font-data">${avg ?? "–"}</b></span></div>${cells}</div>`;
       }).join("");
-      const bars = cis.map(([d, c]) => `<span class="ebar" title="${fmtDate(d)}${c.energy ? " — energia " + c.energy : ""}"><i style="height:${(c.energy || 0) * 20}%"></i></span>`).join("");
       const legend = Object.entries(REST).map(([k, r]) => `<span><i style="background:var(--c-${r.c})"></i>${r.label}: <b class="font-data">${counts[k]}</b></span>`).join("");
       return `<div class="stack">
         ${card(eyebrow("Napi kártya", "gold") + form, "gold")}
-        ${card(eyebrow("Az elmúlt 4 hét") + `<div class="dots">${dots}</div><div class="legend">${legend}</div>
-          <div class="kicker" style="margin-top:16px">Energia</div><div class="ebars">${bars}</div>`)}
+        ${card(eyebrow("Az elmúlt 4 hét") + `<p class="small" style="margin:0 0 6px">Felül a napi állapot, alatta az energia (1–5).</p>${head}${weeks}<div class="legend">${legend}</div>`)}
       </div>`;
     },
 
@@ -1032,8 +1044,8 @@
         ${card(eyebrow("Nagyobb célok lebontása", "purple") + `<p class="desc">Ide írd le, hogyan bontod le a nagy és köztes célt konkrét, sorban követhető lépésekre.</p>
           <textarea class="field-input" rows="6" data-field="bigGoalsBreakdown" placeholder="pl. 1) diploma megszerzése → 2) projektvezetői váltás → 3) …">${esc(state.bigGoalsBreakdown)}</textarea>`, "purple")}
         ${card(eyebrow("Havi bevétel bevitele") + `<div class="two">
-          <label class="lbl">Mérnöki (Ft)<input type="number" class="field-input font-data" data-field="income.mernoki" value="${esc(state.income.mernoki)}"></label>
-          <label class="lbl">Ingatlanpiaci (Ft)<input type="number" class="field-input font-data" data-field="income.ingatlanpiaci" value="${esc(state.income.ingatlanpiaci)}"></label></div>
+          <label class="lbl">Mérnöki (Ft)<input type="text" inputmode="numeric" class="field-input font-data" data-money="income.mernoki" value="${fmtThousands(state.income.mernoki)}" placeholder="0"></label>
+          <label class="lbl">Ingatlanpiaci (Ft)<input type="text" inputmode="numeric" class="field-input font-data" data-money="income.ingatlanpiaci" value="${fmtThousands(state.income.ingatlanpiaci)}" placeholder="0"></label></div>
           <p class="small" style="margin:10px 0 0">Ez a(z) ${fmtMonth(state.incomeMonth)} bevétele. Minden hónap ${INCOME_RESET_DAY}-én nullázódik, az addigi összeg az előző hónaphoz mentődik.</p>
           ${incomeHistoryHtml()}`)}
       </div>`;
@@ -1116,12 +1128,12 @@
     document.body.style.backgroundColor = bg;
     $("#tabs").innerHTML = TABS.map((t) => `<button class="tab-btn${tab === t.k ? " active" : ""}" data-act="go" data-v="${t.k}">${icon(t.icon, "icon icon-sm")} ${t.label}</button>`).join("");
     const active = document.activeElement;
-    const focusKey = active && (active.dataset.field || active.dataset.addInput || active.dataset.wish);
+    const focusKey = active && (active.dataset.field || active.dataset.addInput || active.dataset.wish || active.dataset.money);
     const pos = focusKey && active.selectionStart;
     $("#view").innerHTML = VIEWS[tab](D);
     $("#importBtn").parentElement.hidden = !!state.importedAt; // egyszeri: átvétel után eltűnik
     if (focusKey) {
-      const n = $(`[data-field="${focusKey}"],[data-add-input="${focusKey}"],[data-wish="${focusKey}"]`);
+      const n = $(`[data-field="${focusKey}"],[data-add-input="${focusKey}"],[data-wish="${focusKey}"],[data-money="${focusKey}"]`);
       if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} }
     }
     renderTiming();
@@ -1223,6 +1235,16 @@
         for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
         cur[path.at(-1)] = t.type === "number" ? (t.value === "" ? 0 : Number(t.value)) : t.value;
       }, false);
+    } else if (t.dataset.money) {
+      // Csak számjegyet tartunk meg, és gépelés közben ezresekre tagoljuk; a kurzor a helyén marad.
+      const digitsBefore = t.value.slice(0, t.selectionStart).replace(/\D/g, "").length;
+      const num = Number(t.value.replace(/\D/g, "").slice(0, 12)) || 0;
+      t.value = fmtThousands(num);
+      let pos = 0;
+      for (let seen = 0; pos < t.value.length && seen < digitsBefore; pos++) if (/\d/.test(t.value[pos])) seen++;
+      try { t.setSelectionRange(pos, pos); } catch {}
+      const [a, b] = t.dataset.money.split(".");
+      mutate((s) => { s[a][b] = num; }, false);
     } else if (t.dataset.planDay) {
       editPlan((p) => { p.days = { ...p.days, [t.dataset.planDay]: t.value }; }, false);
     } else if (t.dataset.planTarget) {
