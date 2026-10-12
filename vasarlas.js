@@ -2,7 +2,8 @@
 //
 // A tételeket a laptop (Kiértékelő) és a telefon is írhatja. A users/{uid}/shop/{id} dokumentumok
 // egy külön „lista-kulccsal” vannak titkosítva, amit a telefon egyszer, egy párosító kóddal kap meg.
-// Ez a kulcs CSAK a vásárlási listát nyitja: a többi adatot a telefon továbbra sem tudja visszafejteni.
+// Ez a kulcs CSAK a vásárlási listát és a heti tervet (hetiterv.js) nyitja: a többi adatot a telefon
+// továbbra sem tudja visszafejteni.
 //
 // Offline is működik: a lista a telefonon is megvan (localStorage), a pipák és új tételek
 // várakoznak, és a net visszatérésekor felmennek. Tételenként mindig a legutolsó írás számít.
@@ -42,6 +43,8 @@ const Vasarlas = (() => {
 
   let key = null, keyChecked = false, unsub = null, watching = null, pushing = false, msg = "";
   const logged = () => typeof Sync !== "undefined" && Sync.isLoggedIn();
+  // Ugyanez a kulcs nyitja a heti tervet is (hetiterv.js).
+  const shareKey = (k) => { if (typeof HetiTerv !== "undefined") HetiTerv.setKey(k); };
   const shopRef = () => Sync.db().collection("users").doc(Sync.uid()).collection("shop");
 
   function list() {
@@ -122,6 +125,7 @@ const Vasarlas = (() => {
     } catch (e) { msg = "Nem sikerült ellenőrizni (nincs internet?)."; return render(); }
     await KeyDB.set(k);
     key = k;
+    shareKey(k);
     render();
     watch();
   }
@@ -130,6 +134,7 @@ const Vasarlas = (() => {
     stop();
     await KeyDB.clear();
     key = null;
+    shareKey(null);
     localStorage.removeItem(CACHE);
     localStorage.removeItem(PENDING);
     render();
@@ -219,11 +224,12 @@ const Vasarlas = (() => {
   window.addEventListener("online", () => { flush(); watch(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { flush(); watch(); } });
 
-  KeyDB.get().then((k) => { key = k; keyChecked = true; render(); if (key) { watch(); flush(); } });
+  KeyDB.get().then((k) => { key = k; keyChecked = true; shareKey(k); render(); if (key) { watch(); flush(); } });
 
   // app.js hívja be- és kijelentkezéskor.
   function onAuth(state) {
     if (state && state.loggedIn) { watch(); flush(); } else stop();
+    if (typeof HetiTerv !== "undefined") HetiTerv.onAuth(state);
     render();
   }
   return { onAuth, flush };

@@ -77,6 +77,22 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .doneBar button { background: none; border: 0; font: inherit; font-size: 13px; color: var(--muted); padding: 8px 4px; cursor: pointer; }
 .doneBar .clear { color: var(--faint); }
 
+/* heti terv: a mai sor legfelül, az egész hét koppintásra (hetiterv.js) */
+.ma { margin: 0 0 16px; padding: 12px 14px; border-radius: 14px; background: var(--wl-tint); border: 1px solid color-mix(in srgb, var(--wl) 35%, var(--border)); }
+.ma-l { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--wl); }
+.ma-b { font-size: 17px; font-weight: 600; margin-top: 4px; }
+.ma-k { font-size: 14px; color: var(--muted); margin-top: 4px; }
+.ma-k span { font-weight: 600; }
+.ma-het { margin-top: 8px; }
+.ma-het summary { font-size: 13px; color: var(--wl); cursor: pointer; padding: 6px 0 2px; }
+.ma-het table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
+.ma-het th, .ma-het td { text-align: left; vertical-align: top; padding: 6px 4px; border-top: 1px solid color-mix(in srgb, var(--wl) 20%, var(--border)); }
+.ma-het thead th { font-size: 11px; color: var(--faint); font-weight: 600; border-top: 0; }
+.ma-het tbody th { font-weight: 600; white-space: nowrap; }
+.ma-het tbody th span { display: block; font-weight: 400; color: var(--faint); font-size: 11px; }
+.ma-het tr.on { background: color-mix(in srgb, var(--wl) 12%, transparent); }
+.ma-het p { font-size: 11px; color: var(--faint); margin: 8px 0 0; }
+
 /* heti kiértékelés jelzés (vasárnap 16:00-tól) */
 .heti { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 10px 12px 10px 14px; border-radius: 12px; background: var(--eng-tint); color: var(--eng); font-size: 14px; font-weight: 600; }
 .heti span { flex: 1; }
