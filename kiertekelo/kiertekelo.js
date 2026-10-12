@@ -5,6 +5,7 @@
 //   users/{uid}/meta/hidstate   -> { updatedAt, blob }      (a Kiértékelő saját állapota, csak ez írja)
 //   users/{uid}/items/{id}      -> { updatedAt, blob }      (a telefonos lista tételei, itt csak olvassuk)
 //   users/{uid}/days/{nap}      -> { updatedAt, blob }      (a telefonos napi „Ma” kártya, itt csak olvassuk)
+//   users/{uid}/sched/{hétfő|vaz} -> { updatedAt, blob }    (a heti terv tükre a telefonnak, a lista-kulccsal; csak ez írja)
 //
 // A napi kártya a laptopon is kitölthető (state.checkins). A kettőt kérdésenként
 // összefésüljük: mindig a később módosított válasz számít (at: { mező: időbélyeg }).
@@ -49,20 +50,35 @@
     checkins: {},            // laptopon kitöltött napi kártyák: { nap: { mező: érték, at: { mező: idő } } }
     reports: {},             // heti anyagok: { hétfő: { final, generatedAt, ... } }
     reportSeen: null,
+    weekPlans: {},           // heti ütemezés: { hétfő: { 1..7: { blokk, kimenet } } }; a hiányzó Blokk a vázból jön
+    vazExcelAt: null,        // mikor vette át a heti terv az Excel-vázat (egyszeri átállás)
     alerts: { healthDays: 30, idleWeeks: 2, relWeeks: 2 },
   };
 
-  // A heti terv (a felhasználó megadása szerint, a Kiértékelőben átírható).
+  // A heti terv = a heti váz (a „heti rendszer” Excel szerint, a Kiértékelőben átírható).
+  // Minden hét ütemezése ebből indul, és hetente felülírható (state.weekPlans).
+  const VAZ_EXCEL = {
+    1: "~2 óra szakdolgozat",
+    2: "Edzés + tandem",
+    3: "~1,5-2 óra mérnöki tanulás",
+    4: "Edzés + könnyed nyelv",
+    5: "ingatlan projekt",
+    6: "Szakdoga - mérnöki / ingatlan annak függvényében melyik projekt megy jobban mit hozott a hét",
+    7: "pihenés",
+  };
+  const WORK_NOTE = "A blokkok a napi 8 órás munkaidőn felül értendők (általában 8:30–17:00).";
+  // Az okt. 12-i hét, ahogy a felhasználó megadta (egyszer kerül be, ha arra a hétre még nincs semmi).
+  const FIRST_WEEK = ["2026-10-12", {
+    1: { blokk: "Vacsi + heti tervezés", kimenet: "suli; szakdoga; ingatlan" },
+    2: { blokk: "Edzés + tandem", kimenet: "" },
+    3: { blokk: "fodrász + 2 óra ingatlan", kimenet: "árazás átfut, eladási terv összeállít" },
+    4: { blokk: "Edzés + pénzügyi meet", kimenet: "" },
+    5: { blokk: "céges progi", kimenet: "" },
+    6: { blokk: "ingatlan lezár meghirdet", kimenet: "pontok a szerda után alakulnak ki" },
+    7: { blokk: "pihenés/szakdoga", kimenet: "Szakdolgozat: téma végleges, határidő és ütemezés tisztázva a konzulenssel" },
+  }];
   const PLAN_DEFAULT = {
-    days: {
-      1: "Mérnöki / egyetem",
-      2: "Street workout + tandem nyelv",
-      3: "Ingatlanpiac",
-      4: "Edzés + könnyed nyelv / pihenés",
-      5: "Mérnöki vagy társas",
-      6: "Kb. 6 óra projekt (diploma / mérnöki / ingatlan), este pihenés, társas",
-      7: "Pihenés, társas",
-    },
+    days: { ...VAZ_EXCEL },
     targets: { mernoki: 2, ingatlanpiaci: 1, sport: 2, nyelv: 2, jelenlet: 2, tarsas: 2 },
     socialDays: [5, 6, 7],
   };
@@ -216,7 +232,7 @@
   let user = null, publicKey = null, keyfile = null, privateKey = null, remembered = false;
   let state = null, items = new Map(), phoneDays = new Map();
   let listKey = null, shopItems = new Map(), shopState = "unknown", shopCode = null, showCode = false, unsubShop = null;
-  let itemsLoaded = false, daysLoaded = false, logDay = null, reportWeek = null, planOpen = false;
+  let itemsLoaded = false, daysLoaded = false, logDay = null, reportWeek = null, planOpen = false, schedWeek = null;
   let unsubItems = null, unsubState = null, unsubDays = null, idleTimer = null, saveTimer = null, lastSavedAt = 0, savePromise = null;
   let tab = "overview", jegyzetDone = false;
   const timing = {};
@@ -341,6 +357,7 @@
         setSaveStatus("Mentve: " + fmtStamp(d.updatedAt));
         if (prepareState()) scheduleSave();
         render();
+        mirrorSched();
       } catch { setSaveStatus("A mentett állapot nem fejthető vissza.", true); }
     }, (err) => setSaveStatus("Olvasási hiba: " + err.message, true));
 
@@ -465,6 +482,17 @@
     let changed = false;
     if (!state.trackingStart) { state.trackingStart = todayStr(); changed = true; }
     if (!state.plans.length) { state.plans = [{ from: weekKey(parseDay(state.trackingStart)), ...clone(PLAN_DEFAULT) }]; changed = true; }
+    if (!state.vazExcelAt) {
+      // Egyszeri átállás: a heti terv esti sorai az Excel-vázat veszik át, ettől a héttől (a korábbi hetek a régi tervükhöz mérődnek).
+      const cur = weekKey();
+      let p = state.plans[state.plans.length - 1];
+      if (p.from < cur) { p = { ...clone(p), from: cur }; state.plans.push(p); }
+      p.days = { ...VAZ_EXCEL };
+      const [w, days] = FIRST_WEEK;
+      if (!state.weekPlans[w]) state.weekPlans[w] = clone(days);
+      state.vazExcelAt = Date.now();
+      changed = true;
+    }
     const m = incomeMonthKey();
     if (!state.incomeMonth) { state.incomeMonth = m; changed = true; }
     else if (state.incomeMonth !== m) {
@@ -483,6 +511,12 @@
     for (const x of state.plans) if (x.from <= day) p = x;
     return p || { from: day, ...PLAN_DEFAULT };
   }
+  // Egy hét ütemezése: a hetente beírt Blokk, vagy ha arra a napra nincs, a váz.
+  function weekSchedule(monday) {
+    const wp = state.weekPlans[monday] || {}, vaz = planFor(monday).days;
+    return [1, 2, 3, 4, 5, 6, 7].map((n) => ({ blokk: wp[n] && wp[n].blokk != null ? wp[n].blokk : vaz[n] || "", kimenet: (wp[n] && wp[n].kimenet) || "" }));
+  }
+  const blockFor = (day) => weekSchedule(weekKey(parseDay(day)))[isoDow(day) - 1].blokk;
   function checkin(day) {
     const out = {}, at = {};
     const lap = state.checkins[day], ph = phoneDays.get(day);
@@ -554,6 +588,7 @@
     const plan = planFor(monday);
     const A = Object.fromEntries(Object.entries(state.alerts).map(([k, v]) => [k, Math.max(1, Number(v) || 1)]));
     const st = statsFor(days);
+    const schedule = weekSchedule(monday);
     const prev = [1, 2, 3].map((i) => addDays(monday, -7 * i)).filter((w) => addDays(w, 6) >= state.trackingStart)
       .map((w) => statsFor(weekDays(w)).energyAvg).filter((x) => x != null);
     const energyPrev = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;
@@ -600,7 +635,7 @@
     const income = { month, open: month === state.incomeMonth, total: inc ? (Number(inc.mernoki) || 0) + (Number(inc.ingatlanpiaci) || 0) : null };
     // A teendő-kerék állapota (nyitott tételek blokkonként), hogy később látszódjon az íve.
     const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, score: loadScore(s) }]; }));
-    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, targets: plan.targets, ...st, energyPrev, income, todos, alerts, ok };
+    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets: plan.targets, ...st, energyPrev, income, todos, alerts, ok };
   }
 
   function derived() {
@@ -782,6 +817,7 @@
       listKey = await HidCrypto.importListKey(HidCrypto.listBytes(code));
       shopCode = code;
       subscribeShop(key);
+      mirrorSched();
     } catch { if (key === privateKey) { shopState = "error"; if (state) render(); } }
   }
   function subscribeShop(key) {
@@ -821,8 +857,28 @@
       shopState = "on"; showCode = true;
       mutate((s) => { s.wishlistMovedAt = Date.now(); }); // a régi lista tartalékként megmarad a hidstate-ben
       if (!DEMO) subscribeShop(privateKey);
+      mirrorSched();
       flash("Kész. Most párosítsd a telefont a lenti kóddal.", 5000);
     } catch (e) { flash("Nem sikerült bekapcsolni: " + e.message, 6000); }
+  }
+
+  // ---------- heti ütemezés a telefonra ----------
+  // A telefon csak a lista-kulcsot ismeri, ezért a heti tervet azzal titkosítva tükrözzük:
+  // users/{uid}/sched/{hétfő} (ez és a jövő hét) és sched/vaz (az alapváz, ha egy hétre még nincs semmi).
+  // Csak a laptop írja; a telefon olvassa.
+  let schedTimer = null;
+  function mirrorSched() {
+    if (DEMO) return;
+    clearTimeout(schedTimer);
+    schedTimer = setTimeout(async () => {
+      if (!state || !listKey || !user) return;
+      try {
+        const cur = weekKey(), now = Date.now(), ref = userRef().collection("sched");
+        const docs = [[cur, weekSchedule(cur)], [addDays(cur, 7), weekSchedule(addDays(cur, 7))]].map(([w, rows]) => [w, { week: w, rows }]);
+        docs.push(["vaz", { vaz: planFor(cur).days, note: WORK_NOTE }]);
+        await Promise.all(docs.map(async ([id, body]) => ref.doc(id).set({ updatedAt: now, blob: await HidCrypto.sealObj(listKey, body) })));
+      } catch { /* következő szerkesztéskor újra próbálja */ }
+    }, 800);
   }
 
   function shopBoxHtml() {
@@ -836,7 +892,7 @@
         ${showCode
           ? `<div class="suggest-h">Párosító kód a telefonhoz</div>
              <div class="pair-code font-data">${esc(shopCode || "")}</div>
-             <p class="small">A telefonos appban a Vásárlási lista blokkban írd be ezt a kódot (egyszer kell). Ne oszd meg senkivel: aki ismeri, a vásárlási listádat látja (mást nem).</p>
+             <p class="small">A telefonos appban a Vásárlási lista blokkban írd be ezt a kódot (egyszer kell). Ne oszd meg senkivel: aki ismeri, a vásárlási listádat és a heti tervedet látja (mást nem).</p>
              <button class="link" data-act="shopCode">Kód elrejtése</button>`
           : `<span class="small">A lista a párosított telefonnal szinkronban van. </span><button class="link" data-act="shopCode">Párosító kód megjelenítése</button>`}
       </div>`;
@@ -891,6 +947,7 @@
     return `<article class="card report" id="report">
       <header class="r-head"><div class="kicker">Heti kiértékelés</div><h2 class="font-display">${weekRange(r.week)}</h2>
         <div class="small">${r.final ? "Végleges" : "Előzetes — vasárnap éjfélig frissül"} · kitöltött napok: ${r.filled} / 7 · készült: ${fmtStamp(r.generatedAt)}</div></header>
+      ${r.schedule ? sec("A hét terve", scheduleTableHtml(r.week, r.schedule, false), "purple") : ""}
       ${sec("Hová ment a hét (nap / terv)", `<div class="r-areas">${areaRows}</div><p class="small">A függőleges vonal a heti terv; ami túlmegy rajta, az több a tervezettnél.</p>`)}
       ${sec("Terv szerint ment az este?", `<div class="r-kv"><span>igen <b class="font-data">${p.igen}</b></span><span>részben <b class="font-data">${p.reszben}</b></span><span>nem <b class="font-data">${p.nem}</b></span></div>${took}`, "gold")}
       ${sec("Energia", `<div class="r-energy">${ebars}</div><p class="small">Átlag: <b class="font-data">${r.energyAvg != null ? round1(r.energyAvg) : "–"}</b>${r.energyPrev != null ? ` · az előző hetek átlaga: <b class="font-data">${round1(r.energyPrev)}</b>` : ""}</p>`, "blue")}
@@ -904,6 +961,33 @@
       ${sec("Figyelmet kér", r.alerts.length ? `<ul class="r-list r-alerts">${r.alerts.map((a) => `<li>${icon("alert", "icon icon-sm")} ${esc(a)}</li>`).join("")}</ul>` : `<p class="small">Nincs jelzés ezen a héten.</p>`, "danger")}
       ${r.ok.length ? sec("Rendben", `<p>${icon("check", "icon icon-sm")} ${r.ok.join(", ")}</p>`) : ""}
     </article>`;
+  }
+
+  // Heti ütemezés táblázat. Szerkeszthetőn csak a Blokk és a Kimenet írható.
+  function scheduleTableHtml(monday, rows, editable) {
+    const today = todayStr();
+    const cell = (n, f, v) => editable
+      ? `<textarea class="wp-in" rows="1" data-wp="${monday}|${n}|${f}" aria-label="${WEEKDAYS[n]} — ${f === "blokk" ? "Blokk" : "Kimenet"}">${esc(v)}</textarea>`
+      : `<div class="wp-tx">${v ? esc(v) : '<span class="faint">–</span>'}</div>`;
+    const body = rows.map((r, i) => {
+      const n = i + 1, d = addDays(monday, i);
+      return `<tr${d === today ? ' class="wp-today"' : ""}><th scope="row">${WEEKDAYS[n]}<span class="small">${fmtShort(d)}</span></th><td>${cell(n, "blokk", r.blokk)}</td><td>${cell(n, "kimenet", r.kimenet)}</td></tr>`;
+    }).join("");
+    return `<table class="wp"><thead><tr><th>Nap</th><th>Blokk</th><th>Kimenet</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+  function scheduleCardHtml() {
+    const cur = weekKey(), w = schedWeek || cur;
+    const label = w === cur ? "Ez a hét" : w === addDays(cur, 7) ? "Jövő hét" : w === addDays(cur, -7) ? "Múlt hét" : "";
+    const edited = !!state.weekPlans[w];
+    return `<div class="card no-print">
+      <div class="between">${eyebrow("A hét terve", "purple")}
+        <div class="wp-nav"><button class="icon-btn" data-act="wpWeek" data-v="-7" aria-label="Előző hét">‹</button>
+          <span class="font-data">${label ? `<b>${label}</b> · ` : ""}${weekRange(w)}</span>
+          <button class="icon-btn" data-act="wpWeek" data-v="7" aria-label="Következő hét">›</button></div></div>
+      ${scheduleTableHtml(w, weekSchedule(w), !IS_PHONE)}
+      <div class="between" style="margin-top:10px"><span class="small">${WORK_NOTE}</span>
+        ${!IS_PHONE && edited ? `<button class="link" data-act="wpReset">Visszaállítás az alapvázra</button>` : ""}</div>
+    </div>`;
   }
 
   function planEditorHtml() {
@@ -979,7 +1063,7 @@
       const tarsas = has("areas", "tarsas");
       const form = `
         <div class="daypick">${[[today, "Ma"], [yest, "Tegnap"]].map(([d, l]) => `<button class="opt${d === day ? " on" : ""}" data-act="logDay" data-v="${d}">${l} · ${fmtShort(d)}</button>`).join("")}</div>
-        <p class="desc">Terv (${WEEKDAYS[isoDow(day)].toLowerCase()}): ${esc(planFor(day).days[isoDow(day)] || "—")}</p>
+        <p class="desc">Terv (${WEEKDAYS[isoDow(day)].toLowerCase()}): ${esc(blockFor(day) || "—")}</p>
         ${q("Ment a terv szerint az este?", Object.entries(PLAN_ANS).map(([v, l]) => btn("plan", v, l, ci.plan === v)).join(""))}
         ${ci.plan === "reszben" || ci.plan === "nem" ? q("Mi vitte el?", Object.entries(TOOK).map(([v, l]) => btn("took", v, l, has("took", v))).join("")) : ""}
         ${q("Energia ma <span class=\"small\">(1 = kimerült, 5 = tele)</span>", [1, 2, 3, 4, 5].map((v) => btn("energy", v, v, ci.energy === v, 'style="min-width:44px"')).join(""))}
@@ -1024,7 +1108,7 @@
             <button class="btn btn-dark" data-act="print">${icon("print", "icon icon-sm")} PDF mentése</button></div>
           ${reportHtml(r)}`
         : card(`${eyebrow("Heti kiértékelés")}<p class="desc">Az első heti anyag ${fmtDate(next)} (vasárnap) 16:00-kor készül el, a napi kártyák alapján. Addig érdemes minden este kitölteni a napi kártyát a telefonon vagy a Napi napló fülön.</p>`);
-      return `<div class="stack">${top}${planEditorHtml()}</div>`;
+      return `<div class="stack">${scheduleCardHtml()}${top}${planEditorHtml()}</div>`;
     },
 
     paths() {
@@ -1128,12 +1212,12 @@
     document.body.style.backgroundColor = bg;
     $("#tabs").innerHTML = TABS.map((t) => `<button class="tab-btn${tab === t.k ? " active" : ""}" data-act="go" data-v="${t.k}">${icon(t.icon, "icon icon-sm")} ${t.label}</button>`).join("");
     const active = document.activeElement;
-    const focusKey = active && (active.dataset.field || active.dataset.addInput || active.dataset.wish || active.dataset.money);
+    const focusKey = active && (active.dataset.field || active.dataset.addInput || active.dataset.wish || active.dataset.money || active.dataset.wp);
     const pos = focusKey && active.selectionStart;
     $("#view").innerHTML = VIEWS[tab](D);
     $("#importBtn").parentElement.hidden = !!state.importedAt; // egyszeri: átvétel után eltűnik
     if (focusKey) {
-      const n = $(`[data-field="${focusKey}"],[data-add-input="${focusKey}"],[data-wish="${focusKey}"],[data-money="${focusKey}"]`);
+      const n = $(`[data-field="${focusKey}"],[data-add-input="${focusKey}"],[data-wish="${focusKey}"],[data-money="${focusKey}"],[data-wp="${focusKey}"]`);
       if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} }
     }
     renderTiming();
@@ -1204,6 +1288,14 @@
       case "toBlock": { const n = document.getElementById("blk-" + v); if (n) n.scrollIntoView({ behavior: "smooth", block: "start" }); break; }
       case "planSocial": editPlan((p) => { const n = Number(v); p.socialDays = p.socialDays.includes(n) ? p.socialDays.filter((x) => x !== n) : [...p.socialDays, n].sort(); }); break;
       case "print": window.print(); break;
+      case "wpWeek": schedWeek = addDays(schedWeek || weekKey(), Number(v)); render(); break;
+      case "wpReset": {
+        const w = schedWeek || weekKey();
+        if (confirm(`Visszaállítod ezt a hetet (${weekRange(w)}) az alapvázra? A beírt Blokkok és Kimenetek törlődnek.`)) {
+          mutate((s) => { delete s.weekPlans[w]; }); mirrorSched();
+        }
+        break;
+      }
       case "mgDone": mutate((s) => { s.mediumGoalStatus = { achieved: true, achievedDate: todayStr() }; }); break;
       case "mgUndo": mutate((s) => { s.mediumGoalStatus = { achieved: false, achievedDate: null }; }); break;
       case "wishToggle": Wish.toggle(id); break;
@@ -1245,8 +1337,17 @@
       try { t.setSelectionRange(pos, pos); } catch {}
       const [a, b] = t.dataset.money.split(".");
       mutate((s) => { s[a][b] = num; }, false);
+    } else if (t.dataset.wp) {
+      const [w, n, f] = t.dataset.wp.split("|");
+      mutate((s) => {
+        // Az első szerkesztéskor a hét a váz mostani szövegével indul, hogy később ne változzon vele.
+        const wp = s.weekPlans[w] || (s.weekPlans[w] = Object.fromEntries(weekSchedule(w).map((r, i) => [i + 1, { ...r }])));
+        wp[n] = { ...(wp[n] || {}), [f]: t.value };
+      }, false);
+      mirrorSched();
     } else if (t.dataset.planDay) {
       editPlan((p) => { p.days = { ...p.days, [t.dataset.planDay]: t.value }; }, false);
+      mirrorSched();
     } else if (t.dataset.planTarget) {
       editPlan((p) => { p.targets = { ...p.targets, [t.dataset.planTarget]: Math.max(0, Math.min(7, Number(t.value) || 0)) }; }, false);
     } else if (t.dataset.wish) {
