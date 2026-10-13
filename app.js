@@ -57,8 +57,10 @@ function renderBlock(k) {
     <div class="item${i.done ? " done" : ""}${lt ? " later" : ""}" data-id="${i.id}">
       ${i.done || lt ? '<span class="grip" aria-hidden="true"></span>' : `<button class="grip" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${GRIP}</button>`}
       <button class="check" data-act="toggle" aria-label="Kész" aria-pressed="${i.done}"><span class="box">${CHECK}</span></button>
-      <input class="txt" type="text" value="${esc(i.text)}" aria-label="Tétel szövege">
-      ${lt ? `<input class="note" type="text" value="${esc(i.note || "")}" placeholder="megjegyzés…" enterkeyhint="done" autocomplete="off" aria-label="Megjegyzés: mire vár">` : ""}
+      ${lt ? `<div class="tcol">
+        <input class="txt" type="text" value="${esc(i.text)}" aria-label="Tétel szövege">
+        <input class="note" type="text" value="${esc(i.note || "")}" placeholder="megjegyzés…" enterkeyhint="done" autocomplete="off" aria-label="Megjegyzés: mire vár">
+      </div>` : `<input class="txt" type="text" value="${esc(i.text)}" aria-label="Tétel szövege">`}
       ${i.done ? "" : `<button class="lat" data-act="later" aria-label="${lt ? "Vissza a nyitott tételek közé" : "Kilátásban (nem aktuális, de szem előtt marad)"}" aria-pressed="${lt}">${SPROUT}</button>`}
       <button class="del" data-act="del" aria-label="Törlés">${CROSS}</button>
     </div>`;
