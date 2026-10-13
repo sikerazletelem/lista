@@ -118,6 +118,7 @@
     users: '<circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3 3-5 6.5-5s6.5 2 6.5 5"/><circle cx="18" cy="8.5" r="2.3"/><path d="M15.5 14.3c2.7.4 4.7 2.2 4.7 4.7"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.9v.2h5v-.2c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3Z"/>',
     check: '<path d="M5 13l4 4L19 7"/>',
+    sprout: '<path d="M2 9a10 10 0 1 0 20 0M12 19a10 10 0 0 1 10-10M2 9a10 10 0 0 1 10 10M12 4a9.7 9.7 0 0 1 2.99 7.5M9.01 11.5A9.7 9.7 0 0 1 12 4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.1"/>',
@@ -372,7 +373,7 @@
         const d = ch.doc.data();
         try {
           const o = await HidCrypto.decryptItem(key, d.blob);
-          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, doneAt: o.doneAt ?? null, deleted: !!o.deleted, order: o.order, updatedAt: d.updatedAt });
+          items.set(id, { id, block: o.block, text: o.text, done: !!o.done, doneAt: o.doneAt ?? null, deleted: !!o.deleted, order: o.order, later: !!o.later, note: o.note || "", updatedAt: d.updatedAt });
         } catch { items.set(id, { id, error: true, updatedAt: d.updatedAt }); }
       }));
       if (key !== privateKey) return;
@@ -472,9 +473,11 @@
   // ---------- számítások (a Híd képletei) ----------
   function todoSummary(k) {
     const list = [...items.values()].filter((i) => !i.error && !i.deleted && i.block === k);
-    const open = list.filter((i) => !i.done);
-    const editedThisWeek = list.filter((i) => i.updatedAt && Date.now() - i.updatedAt <= 7 * 86400000).length;
-    return { open, total: list.length, doneCount: list.length - open.length, editedThisWeek };
+    // A „Kilátásban” tételek (later) nem terhelnek: nem számítanak a nyitottakba, csak külön, semlegesen.
+    const later = list.filter((i) => !i.done && i.later);
+    const open = list.filter((i) => !i.done && !i.later);
+    const editedThisWeek = list.filter((i) => !i.later && i.updatedAt && Date.now() - i.updatedAt <= 7 * 86400000).length;
+    return { open, later, total: list.length, doneCount: list.filter((i) => i.done).length, editedThisWeek };
   }
   // ---------- előkészítés: új mezők, bevétel-hónap váltás ----------
   // Igazat ad vissza, ha változtatott valamin (akkor menteni kell).
@@ -612,7 +615,7 @@
     }
     // Telefonos listák: nyitott tételek, amikhez hetek óta nem nyúltál.
     for (const b of BLOCKS.filter((x) => x.k === "mernoki" || x.k === "ingatlanpiaci")) {
-      const list = [...items.values()].filter((i) => !i.error && !i.deleted && i.block === b.k);
+      const list = [...items.values()].filter((i) => !i.error && !i.deleted && !i.later && i.block === b.k);
       const open = list.filter((i) => !i.done).length, last = Math.max(0, ...list.map((i) => i.updatedAt || 0));
       if (open && Date.now() - last >= span * 86400000) alerts.push(`${b.label} lista: ${open} nyitott tétel, ${A.idleWeeks} hete egyikhez sem nyúltál.`);
     }
@@ -634,7 +637,7 @@
     const inc = month === state.incomeMonth ? state.income : state.incomeHistory[month];
     const income = { month, open: month === state.incomeMonth, total: inc ? (Number(inc.mernoki) || 0) + (Number(inc.ingatlanpiaci) || 0) : null };
     // A teendő-kerék állapota (nyitott tételek blokkonként), hogy később látszódjon az íve.
-    const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, score: loadScore(s) }]; }));
+    const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, later: s.later.length, score: loadScore(s) }]; }));
     return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets: plan.targets, ...st, energyPrev, income, todos, alerts, ok };
   }
 
@@ -957,7 +960,7 @@
            <p class="small">Sokat vitt el: idő ${s.cost.ido} · pénz ${s.cost.penz} · fókusz ${s.cost.fokusz} alkalommal</p>`
         : `<p class="small">Ezen a héten nem volt jelölt társas alkalom.</p>`, "purple")}
       ${sec(`Bevétel · ${fmtMonth(inc.month)}`, inc.total == null ? `<p class="small">Nincs adat erre a hónapra.</p>` : `<p><b class="font-data">${fmtHUF(inc.total)}</b> — ${incomeLevel(inc.total)}${inc.open ? " (a hónap még tartott, amikor ez készült)" : ""}.</p>`)}
-      ${r.todos ? sec("Nyitott teendők a hét végén", `<div class="r-kv">${BLOCKS.map((b) => `<span><i style="background:var(--c-${b.c})"></i>${b.label} <b class="font-data">${r.todos[b.k] ? r.todos[b.k].open : 0}</b></span>`).join("")}</div>`, "gold") : ""}
+      ${r.todos ? sec("Nyitott teendők a hét végén", `<div class="r-kv">${BLOCKS.map((b) => `<span><i style="background:var(--c-${b.c})"></i>${b.label} <b class="font-data">${r.todos[b.k] ? r.todos[b.k].open : 0}</b>${r.todos[b.k] && r.todos[b.k].later ? `<span class="r-later"> · kilátásban: ${r.todos[b.k].later}</span>` : ""}</span>`).join("")}</div>`, "gold") : ""}
       ${sec("Figyelmet kér", r.alerts.length ? `<ul class="r-list r-alerts">${r.alerts.map((a) => `<li>${icon("alert", "icon icon-sm")} ${esc(a)}</li>`).join("")}</ul>` : `<p class="small">Nincs jelzés ezen a héten.</p>`, "danger")}
       ${r.ok.length ? sec("Rendben", `<p>${icon("check", "icon icon-sm")} ${r.ok.join(", ")}</p>`) : ""}
     </article>`;
@@ -1183,12 +1186,16 @@
       const cols = BLOCKS.map((b) => {
         const live = all.filter((i) => !i.error && !i.deleted && i.block === b.k);
         const key = (i) => i.order ?? -i.updatedAt; // ugyanaz a sorrend, mint a telefonon
-        const open = live.filter((i) => !i.done).sort((x, y) => key(x) - key(y));
+        const open = live.filter((i) => !i.done && !i.later).sort((x, y) => key(x) - key(y));
+        const later = live.filter((i) => !i.done && i.later).sort((x, y) => key(x) - key(y)); // „Kilátásban”: halványan, alul
         const done = live.filter((i) => i.done).sort((x, y) => y.updatedAt - x.updatedAt);
-        const row = (i) => `<div class="note-row${i.done ? " done" : ""}"><span class="box">${i.done ? icon("check", "icon icon-sm") : ""}</span><span class="note-t">${esc(i.text)}</span><time class="font-data">${fmtStamp(i.updatedAt)}</time></div>`;
+        const row = (i) => {
+          const lt = !i.done && i.later;
+          return `<div class="note-row${i.done ? " done" : ""}${lt ? " later" : ""}"><span class="box">${i.done ? icon("check", "icon icon-sm") : ""}</span><span class="note-t">${esc(i.text)}${lt && i.note ? `<span class="note-n">${esc(i.note)}</span>` : ""}</span>${lt ? `<svg viewBox="0 0 24 24" class="icon icon-sm note-sprout" aria-label="Kilátásban">${ICONS.sprout}</svg>` : ""}<time class="font-data">${fmtStamp(i.updatedAt)}</time></div>`;
+        };
         return `<div class="block" id="blk-${b.k}" style="--c:var(--c-${b.c});--t:var(--c-${b.c}-tint)">
-          <div class="block-h"><span>${b.label}</span><span class="font-data">${open.length} nyitott</span></div>
-          <div class="block-b">${open.length ? open.map(row).join("") : `<div class="empty">Nincs nyitott tétel.</div>`}${jegyzetDone ? done.map(row).join("") : ""}</div>
+          <div class="block-h"><span>${b.label}</span><span class="font-data">${open.length} nyitott${later.length ? ` · ${later.length} kilátásban` : ""}</span></div>
+          <div class="block-b">${open.length ? open.map(row).join("") : `<div class="empty">Nincs nyitott tétel.</div>`}${later.map(row).join("")}${jegyzetDone ? done.map(row).join("") : ""}</div>
         </div>`;
       }).join("");
       return `<div class="stack">
@@ -1475,6 +1482,7 @@
     const now = Date.now();
     [["mernoki", "Árajánlat", false], ["mernoki", "Terv átnézése", false], ["mernoki", "Kész dolog", true], ["ingatlanpiaci", "Hirdetés", false], ["maganeleti", "Bevásárlás", false], ["napivasarlas", "Tej", false], ["napivasarlas", "Kenyér", false], ["napivasarlas", "Tojás", false]]
       .forEach(([block, text, done], i) => items.set("d" + i, { id: "d" + i, block, text, done, deleted: false, updatedAt: now - i * 3600000 }));
+    items.set("dl", { id: "dl", block: "mernoki", text: "Feri Revit", done: false, deleted: false, later: true, note: "Feri jelez, ha kell", updatedAt: now - 86400000 });
     // Kitalált napi kártyák az elmúlt 4 hétre (mintha a telefonról jöttek volna).
     const today = todayStr();
     state.trackingStart = addDays(weekKey(), -21);
