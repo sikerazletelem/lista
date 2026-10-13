@@ -8,6 +8,8 @@ const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>';
 const CROSS = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const PLUS = '<svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M12 5v14M5 12h14"/></svg>';
 const GRIP = '<svg viewBox="0 0 24 24"><path d="M7 8h10M7 12h10M7 16h10"/></svg>';
+// Hajtás: a „Kilátásban” jelölés (nem aktuális, valamire vár, de szem előtt marad).
+const SPROUT = '<svg viewBox="0 0 24 24" class="sprout"><path d="M2 9a10 10 0 1 0 20 0M12 19a10 10 0 0 1 10-10M2 9a10 10 0 0 1 10 10M12 4a9.7 9.7 0 0 1 2.99 7.5M9.01 11.5A9.7 9.7 0 0 1 12 4"/></svg>';
 
 let items = [];            // minden rekord, a törölt is (jelölővel)
 const showDone = {};
@@ -44,17 +46,24 @@ function shell() {
 
 function renderBlock(k) {
   const list = live(k);
-  const open = list.filter((i) => !i.done).sort((a, b) => orderKey(a) - orderKey(b));
+  const byOrder = (a, b) => orderKey(a) - orderKey(b);
+  const open = list.filter((i) => !i.done && !i.later).sort(byOrder);
+  const later = list.filter((i) => !i.done && i.later).sort(byOrder); // „Kilátásban”: mindig a blokk alján, halványan
   const done = list.filter((i) => i.done).sort((a, b) => b.updatedAt - a.updatedAt);
-  $("#cnt-" + k).textContent = open.length + " nyitott";
-  const row = (i) => `
-    <div class="item${i.done ? " done" : ""}" data-id="${i.id}">
-      ${i.done ? '<span class="grip" aria-hidden="true"></span>' : `<button class="grip" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${GRIP}</button>`}
+  $("#cnt-" + k).textContent = open.length + " nyitott" + (later.length ? " · " + later.length + " kilátásban" : "");
+  const row = (i) => {
+    const lt = !i.done && i.later;
+    return `
+    <div class="item${i.done ? " done" : ""}${lt ? " later" : ""}" data-id="${i.id}">
+      ${i.done || lt ? '<span class="grip" aria-hidden="true"></span>' : `<button class="grip" aria-label="Áthelyezés (húzd, vagy fel/le nyíl)">${GRIP}</button>`}
       <button class="check" data-act="toggle" aria-label="Kész" aria-pressed="${i.done}"><span class="box">${CHECK}</span></button>
       <input class="txt" type="text" value="${esc(i.text)}" aria-label="Tétel szövege">
+      ${lt ? `<input class="note" type="text" value="${esc(i.note || "")}" placeholder="megjegyzés…" enterkeyhint="done" autocomplete="off" aria-label="Megjegyzés: mire vár">` : ""}
+      ${i.done ? "" : `<button class="lat" data-act="later" aria-label="${lt ? "Vissza a nyitott tételek közé" : "Kilátásban (nem aktuális, de szem előtt marad)"}" aria-pressed="${lt}">${SPROUT}</button>`}
       <button class="del" data-act="del" aria-label="Törlés">${CROSS}</button>
     </div>`;
-  $("#list-" + k).innerHTML = (open.length ? open.map(row).join("") : '<div class="empty">Nincs nyitott tétel.</div>') + (showDone[k] ? done.map(row).join("") : "");
+  };
+  $("#list-" + k).innerHTML = (open.length ? open.map(row).join("") : '<div class="empty">Nincs nyitott tétel.</div>') + later.map(row).join("") + (showDone[k] ? done.map(row).join("") : "");
   $("#done-" + k).innerHTML = done.length
     ? `<button data-act="showdone">${showDone[k] ? "Kész tételek elrejtése" : "Kész tételek (" + done.length + ")"}</button>` + (showDone[k] ? '<button class="clear" data-act="clear">Kész tételek törlése</button>' : "")
     : "";
@@ -82,6 +91,12 @@ document.addEventListener("click", (e) => {
   const it = row && items.find((x) => x.id === row.dataset.id);
   // doneAt: mikor lett kész (a későbbi elemzéshez; az updatedAt egy későbbi módosítással felülíródhat).
   if (act === "toggle" && it) { const now = Date.now(); save({ ...it, done: !it.done, doneAt: it.done ? null : now, updatedAt: now }); }
+  else if (act === "later" && it) {
+    // Visszaváltáskor a rendes nyitott tételek végére kerül, vagyis szinte ugyanott marad, ahol volt.
+    const upd = { ...it, later: !it.later, updatedAt: Date.now() };
+    if (it.later) upd.order = Math.max(orderKey(it), ...live(k).filter((i) => !i.done && !i.later).map((i) => orderKey(i) + 1));
+    save(upd);
+  }
   else if (act === "del" && it) save({ ...it, deleted: true, updatedAt: Date.now() });
   else if (act === "showdone") { showDone[k] = !showDone[k]; renderBlock(k); }
   else if (act === "clear") {
@@ -96,11 +111,12 @@ document.addEventListener("click", (e) => {
 
 let editTimer = null;
 document.addEventListener("input", (e) => {
-  if (!e.target.classList.contains("txt")) return;
+  const field = e.target.classList.contains("txt") ? "text" : e.target.classList.contains("note") ? "note" : null;
+  if (!field) return;
   const row = e.target.closest(".item");
   const it = items.find((x) => x.id === row.dataset.id);
   if (!it) return;
-  const updated = { ...it, text: e.target.value, updatedAt: Date.now() };
+  const updated = { ...it, [field]: e.target.value, updatedAt: Date.now() };
   items[items.findIndex((x) => x.id === it.id)] = updated;
   setStatus("Mentés…");
   clearTimeout(editTimer);
@@ -134,7 +150,7 @@ document.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   try { h.setPointerCapture(e.pointerId); } catch (err) {}
   const row = h.closest(".item");
-  const rows = [...row.parentElement.querySelectorAll(".item:not(.done)")];
+  const rows = [...row.parentElement.querySelectorAll(".item:not(.done):not(.later)")];
   const rects = rows.map((r) => r.getBoundingClientRect());
   const from = rows.indexOf(row);
   const gap = rows.length > 1 ? rects[1].top - rects[0].bottom : 0;
@@ -196,7 +212,7 @@ document.addEventListener("keydown", (e) => {
   if (!h || drag || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
   e.preventDefault();
   const row = h.closest(".item"), k = row.closest(".block").id.slice(4);
-  const rows = [...row.parentElement.querySelectorAll(".item:not(.done)")];
+  const rows = [...row.parentElement.querySelectorAll(".item:not(.done):not(.later)")];
   const from = rows.indexOf(row), to = from + (e.key === "ArrowUp" ? -1 : 1);
   if (to < 0 || to >= rows.length) return;
   const before = new Map(rows.map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
@@ -207,7 +223,7 @@ document.addEventListener("keydown", (e) => {
   const g = $(`#list-${k} .item[data-id="${id}"] button.grip`);
   if (g) g.focus();
   if (reduceMotion()) return;
-  document.querySelectorAll(`#list-${k} .item:not(.done)`).forEach((r) => {
+  document.querySelectorAll(`#list-${k} .item:not(.done):not(.later)`).forEach((r) => {
     const dy = before.get(r.dataset.id) - r.getBoundingClientRect().top;
     if (!dy) return;
     r.style.transform = `translateY(${dy}px)`;
