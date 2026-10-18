@@ -52,6 +52,7 @@
     reportSeen: null,
     weekPlans: {},           // heti ütemezés: { hétfő: { 1..7: { blokk, kimenet } } }; a hiányzó Blokk a vázból jön
     vazExcelAt: null,        // mikor vette át a heti terv az Excel-vázat (egyszeri átállás)
+    jelenlet1At: null,       // mikor állt át a Jelenlét heti célja 1-re (egyszeri átállás)
     alerts: { healthDays: 30, idleWeeks: 2, relWeeks: 2 },
   };
 
@@ -79,7 +80,7 @@
   }];
   const PLAN_DEFAULT = {
     days: { ...VAZ_EXCEL },
-    targets: { mernoki: 2, ingatlanpiaci: 1, sport: 2, nyelv: 2, jelenlet: 2, tarsas: 2 },
+    targets: { mernoki: 2, ingatlanpiaci: 1, sport: 2, nyelv: 2, jelenlet: 1, tarsas: 2 },
     socialDays: [5, 6, 7],
   };
   const WEEKDAYS = { 1: "Hétfő", 2: "Kedd", 3: "Szerda", 4: "Csütörtök", 5: "Péntek", 6: "Szombat", 7: "Vasárnap" };
@@ -494,6 +495,15 @@
       const [w, days] = FIRST_WEEK;
       if (!state.weekPlans[w]) state.weekPlans[w] = clone(days);
       state.vazExcelAt = Date.now();
+      changed = true;
+    }
+    if (!state.jelenlet1At) {
+      // Egyszeri átállás: a Jelenlét heti célja 2 → 1, ettől a héttől (a korábbi hetek a régi célhoz mérődnek).
+      const cur = weekKey();
+      let p = state.plans[state.plans.length - 1];
+      if (p.from < cur) { p = { ...clone(p), from: cur }; state.plans.push(p); }
+      p.targets = { ...p.targets, jelenlet: 1 };
+      state.jelenlet1At = Date.now();
       changed = true;
     }
     const m = incomeMonthKey();
