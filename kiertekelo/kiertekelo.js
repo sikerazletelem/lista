@@ -53,6 +53,7 @@
     weekPlans: {},           // heti ütemezés: { hétfő: { 1..7: { blokk, kimenet } } }; a hiányzó Blokk a vázból jön
     vazExcelAt: null,        // mikor vette át a heti terv az Excel-vázat (egyszeri átállás)
     jelenlet1At: null,       // mikor állt át a Jelenlét heti célja 1-re (egyszeri átállás)
+    offDays: {},             // kiesett napok (betegség stb.): { nap: true }; a célok ezekkel arányosan kisebbek
     alerts: { healthDays: 30, idleWeeks: 2, relWeeks: 2 },
   };
 
@@ -136,6 +137,8 @@
     calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     alert: '<path d="M12 4 2.8 19.5h18.4Z"/><path d="M12 10v4.5M12 17v.1"/>',
     print: '<path d="M7 9V4h10v5"/><rect x="3.5" y="9" width="17" height="8" rx="2"/><path d="M7 14h10v6H7z"/>',
+    play: '<path d="M8 5.5v13l10-6.5Z"/>',
+    pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   };
   const icon = (n, cls = "icon") => `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${ICONS[n]}</svg>`;
 
@@ -549,6 +552,12 @@
     if (ci.rest === "pihenes") s.add("jelenlet"); // a feltöltődős nap a Jelenlétbe számít
     return s;
   }
+  // Kiesett napok (betegség stb.): ezeken a napokon a terv nem kérhető számon, ezért a heti
+  // célok a megmaradt napok arányában kisebbek (pl. 2 kiesett nap → 5/7 rész, kerekítve).
+  const offIn = (days) => days.filter((d) => state.offDays[d]);
+  const scaleTargets = (targets, offCount) => offCount
+    ? Object.fromEntries(Object.entries(targets).map(([k, t]) => [k, Math.round((t * (7 - offCount)) / 7)]))
+    : targets;
   const daysBetween = (a, b) => Math.round((parseDay(b) - parseDay(a)) / 86400000);
 
   function statsFor(days) {
@@ -599,6 +608,7 @@
   function buildReport(monday, final) {
     const days = weekDays(monday), sunday = days[6];
     const plan = planFor(monday);
+    const offDays = offIn(days), targets = scaleTargets(plan.targets, offDays.length);
     const A = Object.fromEntries(Object.entries(state.alerts).map(([k, v]) => [k, Math.max(1, Number(v) || 1)]));
     const st = statsFor(days);
     const schedule = weekSchedule(monday);
@@ -612,7 +622,7 @@
     const idleWindow = Array.from({ length: span }, (_, i) => addDays(sunday, -i));
     const idleKnown = idleWindow.every((d) => d >= state.trackingStart);
     for (const [k, a] of Object.entries(AREAS)) {
-      const n = st.areas[k], t = plan.targets[k] || 0;
+      const n = st.areas[k], t = targets[k] || 0;
       if (!t) continue;
       if (idleKnown && idleWindow.every((d) => !dayAreas(checkin(d)).has(k))) alerts.push(`${a.label}: ${A.idleWeeks} hete nem jutott rá idő.`);
       else if (n < t) alerts.push(`${a.label}: ${n} alkalom, a terv ${t}.`);
@@ -648,7 +658,7 @@
     const income = { month, open: month === state.incomeMonth, total: inc ? (Number(inc.mernoki) || 0) + (Number(inc.ingatlanpiaci) || 0) : null };
     // A teendő-kerék állapota (nyitott tételek blokkonként), hogy később látszódjon az íve.
     const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, later: s.later.length, score: loadScore(s) }]; }));
-    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets: plan.targets, ...st, energyPrev, income, todos, alerts, ok };
+    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets, offDays, ...st, energyPrev, income, todos, alerts, ok };
   }
 
   function derived() {
@@ -663,11 +673,11 @@
     const mern = todoSummary("mernoki"), ingat = todoSummary("ingatlanpiaci");
     // A kerék: az elmúlt 7 nap a mai terv céljaihoz képest.
     const last7 = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
-    const week7 = statsFor(last7);
+    const week7 = statsFor(last7), off7 = offIn(last7).length;
     const mgs = state.mediumGoalStatus;
     const mgDays = mgs.achieved ? daysSince(mgs.achievedDate) : null;
     return { rel, relWeek, relToday, relEntry, relDays, relSuggest, relChecked, mern, ingat, mgs, mgDays,
-      week7, targets: planFor(today).targets,
+      week7, off7, targets: scaleTargets(planFor(today).targets, off7),
       restToday: checkin(today).rest,
       totalIncome: (Number(state.income.mernoki) || 0) + (Number(state.income.ingatlanpiaci) || 0) };
   }
@@ -887,7 +897,8 @@
       if (!state || !listKey || !user) return;
       try {
         const cur = weekKey(), now = Date.now(), ref = userRef().collection("sched");
-        const docs = [[cur, weekSchedule(cur)], [addDays(cur, 7), weekSchedule(addDays(cur, 7))]].map(([w, rows]) => [w, { week: w, rows }]);
+        // A kiesett napok is átmennek (off), a telefon csak megjeleníti őket.
+        const docs = [cur, addDays(cur, 7)].map((w) => [w, { week: w, rows: weekSchedule(w).map((r, i) => (state.offDays[addDays(w, i)] ? { ...r, off: true } : r)) }]);
         docs.push(["vaz", { vaz: planFor(cur).days, note: WORK_NOTE }]);
         await Promise.all(docs.map(async ([id, body]) => ref.doc(id).set({ updatedAt: now, blob: await HidCrypto.sealObj(listKey, body) })));
       } catch { /* következő szerkesztéskor újra próbálja */ }
@@ -960,8 +971,8 @@
     return `<article class="card report" id="report">
       <header class="r-head"><div class="kicker">Heti kiértékelés</div><h2 class="font-display">${weekRange(r.week)}</h2>
         <div class="small">${r.final ? "Végleges" : "Előzetes — vasárnap éjfélig frissül"} · kitöltött napok: ${r.filled} / 7 · készült: ${fmtStamp(r.generatedAt)}</div></header>
-      ${r.schedule ? sec("A hét terve", scheduleTableHtml(r.week, r.schedule, false), "purple") : ""}
-      ${sec("Hová ment a hét (nap / terv)", `<div class="r-areas">${areaRows}</div><p class="small">A függőleges vonal a heti terv; ami túlmegy rajta, az több a tervezettnél.</p>`)}
+      ${r.schedule ? sec("A hét terve", scheduleTableHtml(r.week, r.schedule, false, r.offDays || []), "purple") : ""}
+      ${sec("Hová ment a hét (nap / terv)", `<div class="r-areas">${areaRows}</div>${r.offDays && r.offDays.length ? `<p class="r-off">${icon("pause", "icon icon-sm")} ${r.offDays.length} nap kiesés (${r.offDays.map((d) => WEEKDAYS[isoDow(d)].toLowerCase()).join(", ")}) — a terv ehhez arányosan kisebb.</p>` : ""}<p class="small">A függőleges vonal a heti terv; ami túlmegy rajta, az több a tervezettnél.</p>`)}
       ${sec("Terv szerint ment az este?", `<div class="r-kv"><span>igen <b class="font-data">${p.igen}</b></span><span>részben <b class="font-data">${p.reszben}</b></span><span>nem <b class="font-data">${p.nem}</b></span></div>${took}`, "gold")}
       ${sec("Energia", `<div class="r-energy">${ebars}</div><p class="small">Átlag: <b class="font-data">${r.energyAvg != null ? round1(r.energyAvg) : "–"}</b>${r.energyPrev != null ? ` · az előző hetek átlaga: <b class="font-data">${round1(r.energyPrev)}</b>` : ""}</p>`, "blue")}
       ${sec("Napi állapot", `<div class="r-kv">${Object.entries(REST).map(([k, x]) => `<span><i style="background:var(--c-${x.c})"></i>${x.label} <b class="font-data">${r.rest[k]}</b></span>`).join("")}</div>`, "gold")}
@@ -976,17 +987,22 @@
     </article>`;
   }
 
-  // Heti ütemezés táblázat. Szerkeszthetőn csak a Blokk és a Kimenet írható.
-  function scheduleTableHtml(monday, rows, editable) {
+  // Heti ütemezés táblázat. Szerkeszthetőn csak a Blokk és a Kimenet írható, és a sor végén
+  // ki-be kapcsolható a kiesett nap (lejátszás ↔ szünet jel). `off`: a kiesett napok listája.
+  function scheduleTableHtml(monday, rows, editable, off = []) {
     const today = todayStr();
     const cell = (n, f, v) => editable
       ? `<textarea class="wp-in" rows="1" data-wp="${monday}|${n}|${f}" aria-label="${WEEKDAYS[n]} — ${f === "blokk" ? "Blokk" : "Kimenet"}">${esc(v)}</textarea>`
       : `<div class="wp-tx">${v ? esc(v) : '<span class="faint">–</span>'}</div>`;
     const body = rows.map((r, i) => {
-      const n = i + 1, d = addDays(monday, i);
-      return `<tr${d === today ? ' class="wp-today"' : ""}><th scope="row">${WEEKDAYS[n]}<span class="small">${fmtShort(d)}</span></th><td>${cell(n, "blokk", r.blokk)}</td><td>${cell(n, "kimenet", r.kimenet)}</td></tr>`;
+      const n = i + 1, d = addDays(monday, i), isOff = off.includes(d);
+      const cls = [d === today && "wp-today", isOff && "wp-off"].filter(Boolean).join(" ");
+      const sw = editable
+        ? `<button class="wp-sw" data-act="offDay" data-v="${d}" aria-pressed="${isOff}" title="${isOff ? "Kiesett nap — visszaállítás" : "Kiesett nap jelölése"}" aria-label="${WEEKDAYS[n]}: ${isOff ? "kiesett nap, visszaállítás" : "kiesett nap jelölése"}">${icon(isOff ? "pause" : "play", "icon icon-sm")}</button>`
+        : isOff ? `<span class="wp-sw" aria-label="kiesett nap">${icon("pause", "icon icon-sm")}</span>` : "";
+      return `<tr${cls ? ` class="${cls}"` : ""}><th scope="row">${WEEKDAYS[n]}<span class="small">${fmtShort(d)}</span>${isOff ? '<span class="wp-offl">kiesett nap</span>' : ""}</th><td>${cell(n, "blokk", r.blokk)}</td><td>${cell(n, "kimenet", r.kimenet)}</td><td class="wp-swc">${sw}</td></tr>`;
     }).join("");
-    return `<table class="wp"><thead><tr><th>Nap</th><th>Blokk</th><th>Kimenet</th></tr></thead><tbody>${body}</tbody></table>`;
+    return `<table class="wp"><thead><tr><th>Nap</th><th>Blokk</th><th>Kimenet</th><th aria-label="Kiesés"></th></tr></thead><tbody>${body}</tbody></table>`;
   }
   function scheduleCardHtml() {
     const cur = weekKey(), w = schedWeek || cur;
@@ -997,7 +1013,7 @@
         <div class="wp-nav"><button class="icon-btn" data-act="wpWeek" data-v="-7" aria-label="Előző hét">‹</button>
           <span class="font-data">${label ? `<b>${label}</b> · ` : ""}${weekRange(w)}</span>
           <button class="icon-btn" data-act="wpWeek" data-v="7" aria-label="Következő hét">›</button></div></div>
-      ${scheduleTableHtml(w, weekSchedule(w), !IS_PHONE)}
+      ${scheduleTableHtml(w, weekSchedule(w), !IS_PHONE, offIn(weekDays(w)))}
       <div class="between" style="margin-top:10px"><span class="small">${WORK_NOTE}</span>
         ${!IS_PHONE && edited ? `<button class="link" data-act="wpReset">Visszaállítás az alapvázra</button>` : ""}</div>
     </div>`;
@@ -1036,7 +1052,7 @@
       return `<div class="stack">
         ${fresh}
         <div>${eyebrow("Élet-kerék — hová ment az elmúlt 7 nap")}<div class="card wheel-card">${wheelSvg(D)}
-          <p class="wheel-note">${noData ? "Még nincs napi bejegyzés. A telefonon (Jegyzet alatt) vagy itt, a Napi napló fülön töltheted ki. " : ""}Minél nagyobb a szelet, annál több jutott rá. A szaggatott kör a heti terved; ami túllóg rajta, az több a tervezettnél.</p></div></div>
+          <p class="wheel-note">${noData ? "Még nincs napi bejegyzés. A telefonon (Jegyzet alatt) vagy itt, a Napi napló fülön töltheted ki. " : ""}Minél nagyobb a szelet, annál több jutott rá. A szaggatott kör a heti terved; ami túllóg rajta, az több a tervezettnél.${D.off7 ? ` Az elmúlt 7 napban ${D.off7} nap kiesés volt, a célok ehhez arányosan kisebbek.` : ""}</p></div></div>
         ${card(eyebrow("Ezen a héten — teendők", "gold") + `<div class="two">${weekly}</div>`, "gold")}
         ${card(`${eyebrow(`Havi bevétel a küszöbökhöz képest · ${fmtMonth(state.incomeMonth)}`)}
           <div class="incbar">
@@ -1306,6 +1322,12 @@
       case "planSocial": editPlan((p) => { const n = Number(v); p.socialDays = p.socialDays.includes(n) ? p.socialDays.filter((x) => x !== n) : [...p.socialDays, n].sort(); }); break;
       case "print": window.print(); break;
       case "wpWeek": schedWeek = addDays(schedWeek || weekKey(), Number(v)); render(); break;
+      case "offDay": mutate((s) => {
+        if (s.offDays[v]) delete s.offDays[v]; else s.offDays[v] = true;
+        // Ha a hét anyaga már végleges, utólag is frissül, hogy a kiesés benne legyen.
+        const w = weekKey(parseDay(v));
+        if (s.reports[w] && s.reports[w].final && daysLoaded && itemsLoaded) s.reports[w] = buildReport(w, true);
+      }); mirrorSched(); break;
       case "wpReset": {
         const w = schedWeek || weekKey();
         if (confirm(`Visszaállítod ezt a hetet (${weekRange(w)}) az alapvázra? A beírt Blokkok és Kimenetek törlődnek.`)) {

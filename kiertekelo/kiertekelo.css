@@ -240,6 +240,16 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .wp tbody th .small { display: block; font-weight: 400; }
 .wp td { width: 50%; }
 .wp-today { background: var(--c-purple-tint); }
+/* kiesett nap (betegség stb.): semleges, szürkés háttér, halvány szöveg; a sor végén lejátszás ↔ szünet jel */
+.wp-off, .wp-off.wp-today { background: var(--tab-bg); }
+.wp-off .wp-in, .wp-off .wp-tx { color: var(--faint); }
+.wp-offl { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.wp td.wp-swc { width: 1%; padding: 6px 2px; vertical-align: middle; }
+.wp-sw { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--faint-2); opacity: .55; cursor: pointer; }
+.wp tr:hover .wp-sw, .wp-sw:focus-visible { opacity: 1; }
+.wp-sw:hover { background: var(--surface-2); color: var(--ink); }
+.wp-off .wp-sw { opacity: 1; color: var(--ink); }
+.r-off { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; margin: 8px 0 0; }
 .wp-in { width: 100%; min-height: 34px; resize: none; field-sizing: content; border: 1px solid transparent; border-radius: 8px; background: transparent; padding: 6px 8px; font: inherit; color: inherit; line-height: 1.4; }
 .wp-in:hover { border-color: var(--border); }
 .wp-in:focus { outline: none; border-color: var(--c-purple); background: var(--surface); }
