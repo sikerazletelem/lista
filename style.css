@@ -105,6 +105,11 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .ma-het tbody th { font-weight: 600; white-space: nowrap; }
 .ma-het tbody th span { display: block; font-weight: 400; color: var(--faint); font-size: 11px; }
 .ma-het tr.on { background: color-mix(in srgb, var(--wl) 12%, transparent); }
+.ma-het tr.off { background: color-mix(in srgb, var(--faint) 16%, transparent); }
+.ma-het tr.off td { color: var(--faint); }
+.ma-off { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.ma-het tbody th .ma-off { display: flex; margin-top: 2px; color: var(--muted); }
+.ma-l .ma-off { margin-left: 6px; vertical-align: 1px; }
 .ma-het p { font-size: 11px; color: var(--faint); margin: 8px 0 0; }
 
 /* heti kiértékelés jelzés (vasárnap 16:00-tól) */

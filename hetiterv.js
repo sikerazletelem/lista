@@ -7,6 +7,7 @@
 const HetiTerv = (() => {
   const CACHE = "hid-hetiterv-cache"; // { hétfő|vaz: visszafejtett tartalom }
   const DAYS = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"];
+  const PAUSE = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M9 5.5v13M15 5.5v13"/></svg>';
 
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -34,10 +35,14 @@ const HetiTerv = (() => {
     const all = read(), now = new Date(), w = monday(now), r = key ? rows(all, w) : null;
     if (!r) { el.innerHTML = ""; return; }
     const t = dow(now), today = r[t] || {};
-    const week = r.map((x, i) => `<tr${i === t ? ' class="on"' : ""}><th>${DAYS[i]}<span>${short(w, i)}</span></th><td>${esc(x.blokk) || "–"}</td><td>${esc(x.kimenet) || "–"}</td></tr>`).join("");
+    // Kiesett nap (a Kiértékelőben jelölve, itt csak megjelenik): szürkés sor, szünet jel.
+    const week = r.map((x, i) => {
+      const cls = [i === t && "on", x.off && "off"].filter(Boolean).join(" ");
+      return `<tr${cls ? ` class="${cls}"` : ""}><th>${DAYS[i]}<span>${short(w, i)}</span>${x.off ? `<span class="ma-off">${PAUSE} kiesett nap</span>` : ""}</th><td>${esc(x.blokk) || "–"}</td><td>${esc(x.kimenet) || "–"}</td></tr>`;
+    }).join("");
     el.innerHTML = `
       <section class="ma">
-        <div class="ma-l">Ma · ${DAYS[t].toLowerCase()}</div>
+        <div class="ma-l">Ma · ${DAYS[t].toLowerCase()}${today.off ? ` <span class="ma-off">${PAUSE} kiesett nap</span>` : ""}</div>
         <div class="ma-b">${esc(today.blokk) || "Nincs megadva blokk."}</div>
         ${today.kimenet ? `<div class="ma-k"><span>Kimenet:</span> ${esc(today.kimenet)}</div>` : ""}
         <details class="ma-het"${weekOpen ? " open" : ""}><summary>Egész hét</summary>
