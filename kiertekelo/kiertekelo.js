@@ -6,6 +6,7 @@
 //   users/{uid}/items/{id}      -> { updatedAt, blob }      (a telefonos lista tételei, itt csak olvassuk)
 //   users/{uid}/days/{nap}      -> { updatedAt, blob }      (a telefonos napi „Ma” kártya, itt csak olvassuk)
 //   users/{uid}/sched/{hétfő|vaz} -> { updatedAt, blob }    (a heti terv tükre a telefonnak, a lista-kulccsal; csak ez írja)
+//   users/{uid}/daysync/{nap}   -> { updatedAt, blob }      (a laptopon beírt napi kártya tükre a telefonnak, a lista-kulccsal; csak ez írja)
 //
 // A napi kártya a laptopon is kitölthető (state.checkins). A kettőt kérdésenként
 // összefésüljük: mindig a később módosított válasz számít (at: { mező: időbélyeg }).
@@ -99,7 +100,8 @@
   const TOOK = { tarsas: "társas", faradtsag: "fáradtság", tuloras: "túlóra", egyeb: "egyéb" };
   const IRANY = { igen: "igen, az irányomba", jolesett: "csak jólesett" };
   const COST = { ido: "idő", penz: "pénz", fokusz: "fókusz" };
-  const CHECK_FIELDS = ["plan", "took", "energy", "areas", "rest", "irany", "cost"];
+  // anchor = horgonymondat („Mire fogsz emlékezni a mai napból?”), szabad szöveg.
+  const CHECK_FIELDS = ["plan", "took", "energy", "areas", "rest", "irany", "cost", "anchor"];
 
   const BLOCKS = [
     { k: "mernoki", label: "Mérnöki", c: "green" },
@@ -363,6 +365,7 @@
         if (prepareState()) scheduleSave();
         render();
         mirrorSched();
+        mirrorDays();
       } catch { setSaveStatus("A mentett állapot nem fejthető vissza.", true); }
     }, (err) => setSaveStatus("Olvasási hiba: " + err.message, true));
 
@@ -658,7 +661,9 @@
     const income = { month, open: month === state.incomeMonth, total: inc ? (Number(inc.mernoki) || 0) + (Number(inc.ingatlanpiaci) || 0) : null };
     // A teendő-kerék állapota (nyitott tételek blokkonként), hogy később látszódjon az íve.
     const todos = Object.fromEntries(BLOCKS.map((b) => { const s = todoSummary(b.k); return [b.k, { open: s.open.length, later: s.later.length, score: loadScore(s) }]; }));
-    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets, offDays, ...st, energyPrev, income, todos, alerts, ok };
+    // A hét története: a napi horgonymondatok, az üres napok kimaradnak.
+    const story = days.map((d) => ({ day: d, text: checkin(d).anchor })).filter((x) => x.text);
+    return { final, generatedAt: Date.now(), week: monday, planDays: plan.days, schedule, targets, offDays, ...st, energyPrev, income, todos, alerts, ok, story };
   }
 
   function derived() {
@@ -841,6 +846,7 @@
       shopCode = code;
       subscribeShop(key);
       mirrorSched();
+      mirrorDays(); // az utolsó 14 nap laptopos kártyái a telefonnak
     } catch { if (key === privateKey) { shopState = "error"; if (state) render(); } }
   }
   function subscribeShop(key) {
@@ -902,6 +908,29 @@
         docs.push(["vaz", { vaz: planFor(cur).days, note: WORK_NOTE }]);
         await Promise.all(docs.map(async ([id, body]) => ref.doc(id).set({ updatedAt: now, blob: await HidCrypto.sealObj(listKey, body) })));
       } catch { /* következő szerkesztéskor újra próbálja */ }
+    }, 800);
+  }
+
+  // ---------- a laptopon beírt napi kártyák a telefonra ----------
+  // A telefon a fő kulcsot nem ismeri, ezért a laptopos válaszokat (state.checkins, az időbélyegekkel)
+  // a lista-kulccsal is feltesszük: users/{uid}/daysync/{nap}. A telefon kérdésenként a később
+  // módosítottat veszi át. Csak a laptop írja; az utolsó 14 nap megy (a telefon is ennyit tart).
+  const MIRROR_DAYS = 14;
+  let daysTimer = null, daysQueue = new Set(), daysAll = false;
+  function mirrorDays(list) {
+    if (DEMO) return;
+    if (list) list.forEach((d) => daysQueue.add(d)); else daysAll = true;
+    clearTimeout(daysTimer);
+    daysTimer = setTimeout(async () => {
+      if (!state || !listKey || !user) return; // a kulcs/állapot betöltésekor újra meghívódik
+      const from = addDays(todayStr(), -(MIRROR_DAYS - 1));
+      if (daysAll) Object.keys(state.checkins).forEach((d) => daysQueue.add(d));
+      const todo = [...daysQueue].filter((d) => d >= from); daysQueue = new Set(); daysAll = false;
+      try {
+        const now = Date.now(), ref = userRef().collection("daysync");
+        await Promise.all(todo.filter((d) => state.checkins[d]).map(async (d) =>
+          ref.doc(d).set({ updatedAt: now, blob: await HidCrypto.sealObj(listKey, { date: d, ...state.checkins[d] }) })));
+      } catch { todo.forEach((d) => daysQueue.add(d)); /* következő szerkesztéskor újra próbálja */ }
     }, 800);
   }
 
@@ -971,6 +1000,7 @@
     return `<article class="card report" id="report">
       <header class="r-head"><div class="kicker">Heti kiértékelés</div><h2 class="font-display">${weekRange(r.week)}</h2>
         <div class="small">${r.final ? "Végleges" : "Előzetes — vasárnap éjfélig frissül"} · kitöltött napok: ${r.filled} / 7 · készült: ${fmtStamp(r.generatedAt)}</div></header>
+      ${r.story && r.story.length ? sec("A hét története", `<ul class="r-list r-story">${r.story.map((x) => `<li><b>${WEEKDAYS[isoDow(x.day)]}</b> · ${esc(x.text)}</li>`).join("")}</ul>`, "blue") : ""}
       ${r.schedule ? sec("A hét terve", scheduleTableHtml(r.week, r.schedule, false, r.offDays || []), "purple") : ""}
       ${sec("Hová ment a hét (nap / terv)", `<div class="r-areas">${areaRows}</div>${r.offDays && r.offDays.length ? `<p class="r-off">${icon("pause", "icon icon-sm")} ${r.offDays.length} nap kiesés (${r.offDays.map((d) => WEEKDAYS[isoDow(d)].toLowerCase()).join(", ")}) — a terv ehhez arányosan kisebb.</p>` : ""}<p class="small">A függőleges vonal a heti terv; ami túlmegy rajta, az több a tervezettnél.</p>`)}
       ${sec("Terv szerint ment az este?", `<div class="r-kv"><span>igen <b class="font-data">${p.igen}</b></span><span>részben <b class="font-data">${p.reszben}</b></span><span>nem <b class="font-data">${p.nem}</b></span></div>${took}`, "gold")}
@@ -1100,7 +1130,9 @@
         ${q("Napi állapot", Object.entries(REST).map(([v, r]) => btn("rest", v, r.label, ci.rest === v, `style="--c:var(--c-${r.c})"`)).join(""))}
         ${tarsas ? `<div class="q-sub">${q("Társas: visz valamerre?", Object.entries(IRANY).map(([v, l]) => btn("irany", v, l, ci.irany === v)).join(""))}
           ${q("Mit vitt el sokat? <span class=\"small\">(nem kötelező)</span>", Object.entries(COST).map(([v, l]) => btn("cost", v, l, has("cost", v))).join(""))}
-          ${!planFor(day).socialDays.includes(isoDow(day)) ? `<p class="small">Ez terven kívüli társas este (a terved szerint ${planFor(day).socialDays.map((n) => WEEKDAYS[n].toLowerCase()).join(", ")} a társas nap).</p>` : ""}</div>` : ""}`;
+          ${!planFor(day).socialDays.includes(isoDow(day)) ? `<p class="small">Ez terven kívüli társas este (a terved szerint ${planFor(day).socialDays.map((n) => WEEKDAYS[n].toLowerCase()).join(", ")} a társas nap).</p>` : ""}</div>` : ""}
+        <div class="q"><div class="q-l">Mire fogsz emlékezni ${day === yest ? "a tegnapi" : "a mai"} napból?</div>
+          <textarea class="field-input anchor" data-anchor="${day}" rows="2" maxlength="300" aria-label="Horgonymondat">${esc(ci.anchor || "")}</textarea></div>`;
       // Az elmúlt 4 hét hetekre bontva (hétfőtől vasárnapig): napi állapot és alatta az energia.
       const monday = addDays(today, 1 - isoDow(today));
       const counts = { pihenes: 0, dolgoztam: 0, menekules: 0 };
@@ -1292,6 +1324,17 @@
       c.at = { ...(c.at || {}), [f]: Date.now() };
       if (f === "rest") { if (val) s.restLogs[day] = val; else delete s.restLogs[day]; } // a régi napló is kövesse
     });
+    mirrorDays([day]);
+  }
+  // Horgonymondat a laptopon: gépelés közben nem rajzolunk újra (a mentés így is megy).
+  function setAnchor(day, raw) {
+    const val = String(raw).trim() ? String(raw).slice(0, 300) : null;
+    mutate((s) => {
+      const c = s.checkins[day] || (s.checkins[day] = { at: {} });
+      c.anchor = val;
+      c.at = { ...(c.at || {}), anchor: Date.now() };
+    }, false);
+    mirrorDays([day]);
   }
   // A terv módosítása ettől a héttől érvényes: ha a mostani terv korábbi hétről való, új változat készül.
   function editPlan(fn, rerender = true) {
@@ -1359,7 +1402,8 @@
   document.addEventListener("input", (e) => {
     const t = e.target;
     if (!state) return;
-    if (t.dataset.field) {
+    if (t.dataset.anchor) setAnchor(t.dataset.anchor, t.value);
+    else if (t.dataset.field) {
       const path = t.dataset.field.split(".");
       mutate((s) => {
         let cur = s;
@@ -1530,8 +1574,9 @@
       const areas = ok ? byDow[isoDow(d)] : rnd() > 0.5 ? ["tarsas"] : [];
       const e = { plan: ok ? "igen" : rnd() > 0.5 ? "reszben" : "nem", took: ok ? [] : [rnd() > 0.5 ? "tarsas" : "faradtsag"], energy: 2 + Math.floor(rnd() * 4),
         areas, rest: ["pihenes", "dolgoztam", "dolgoztam", "menekules"][Math.floor(rnd() * 4)], irany: areas.includes("tarsas") ? (rnd() > 0.5 ? "igen" : "jolesett") : null,
-        cost: areas.includes("tarsas") && rnd() > 0.5 ? ["penz", "ido"] : [] };
-      e.at = Object.fromEntries(Object.keys(e).map((k) => [k, now - i * 86400000]));
+        cost: areas.includes("tarsas") && rnd() > 0.5 ? ["penz", "ido"] : [],
+        anchor: rnd() > 0.4 ? ["Végre összeállt a statikai számítás.", "Hosszú séta a Duna-parton.", "Jó beszélgetés egy régi ismerőssel.", "Megnéztem két lakást, egyik ígéretes.", "Fáradt nap, de a terv tartott."][Math.floor(rnd() * 5)] : null };
+      e.at =Object.fromEntries(Object.keys(e).map((k) => [k, now - i * 86400000]));
       phoneDays.set(d, e);
     }
     itemsLoaded = true; daysLoaded = true;

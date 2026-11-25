@@ -156,6 +156,8 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .opt { font: inherit; font-size: 14px; min-height: 42px; min-width: 42px; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
 .opt.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.napi .anchor { display: block; width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.napi .anchor:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .napi-status { margin-top: 14px; font-size: 12px; color: var(--faint); }
 
 button:focus-visible, input:focus-visible { outline: 2px solid var(--c, var(--eng)); outline-offset: 1px; }

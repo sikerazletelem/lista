@@ -290,6 +290,8 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .r-kv i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .r-kv b { font-weight: 600; margin-left: 2px; }
 .r-list { margin: 10px 0 0; padding-left: 18px; font-size: 13.5px; line-height: 1.6; }
+.r-story { list-style: none; padding: 0; font-size: 14.5px; }
+.r-story b { font-weight: 600; }
 .r-alerts { list-style: none; padding: 0; }
 .r-alerts li { display: flex; gap: 8px; align-items: flex-start; }
 .r-alerts svg.icon { color: var(--c-danger); margin-top: 4px; }

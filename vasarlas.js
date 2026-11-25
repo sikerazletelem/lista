@@ -43,8 +43,11 @@ const Vasarlas = (() => {
 
   let key = null, keyChecked = false, unsub = null, watching = null, pushing = false, msg = "";
   const logged = () => typeof Sync !== "undefined" && Sync.isLoggedIn();
-  // Ugyanez a kulcs nyitja a heti tervet is (hetiterv.js).
-  const shareKey = (k) => { if (typeof HetiTerv !== "undefined") HetiTerv.setKey(k); };
+  // Ugyanez a kulcs nyitja a heti tervet (hetiterv.js) és a gépen beírt napi kártyák tükrét (napi.js).
+  const shareKey = (k) => {
+    if (typeof HetiTerv !== "undefined") HetiTerv.setKey(k);
+    if (typeof Napi !== "undefined") Napi.setKey(k);
+  };
   const shopRef = () => Sync.db().collection("users").doc(Sync.uid()).collection("shop");
 
   function list() {
@@ -230,6 +233,7 @@ const Vasarlas = (() => {
   function onAuth(state) {
     if (state && state.loggedIn) { watch(); flush(); } else stop();
     if (typeof HetiTerv !== "undefined") HetiTerv.onAuth(state);
+    if (typeof Napi !== "undefined") Napi.onAuth(state);
     render();
   }
   return { onAuth, flush };

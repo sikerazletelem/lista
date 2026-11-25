@@ -16,7 +16,8 @@
 // v12: „Kilátásban” jelölés (hajtás ikon): halványan a blokk alján, rövid megjegyzéssel.
 // v13: a megjegyzés a tétel neve alá került.
 // v14: a heti tervben a kiesett napok is látszanak (csak olvasható).
-const CACHE = "hid-lista-v14";
+// v15: horgonymondat a napi kártyán; a gépen beírt napi kártya visszajön a telefonra (daysync).
+const CACHE = "hid-lista-v15";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "napi.js", "hetiterv.js", "vasarlas.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

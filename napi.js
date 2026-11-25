@@ -4,6 +4,10 @@
 // users/{uid}/days/{nap} dokumentumba. Visszaolvasni a telefon nem tudja (nincs privát kulcsa):
 // a Kiértékelő fésüli össze a laptopon beírtakkal, kérdésenként mindig a később módosított számít
 // (at: { mező: időbélyeg }).
+// A laptopon beírt válaszok a users/{uid}/daysync/{nap} dokumentumokból jönnek vissza, a
+// vásárlási lista kulcsával titkosítva (a kulcsot a vasarlas.js adja át: setKey). Ugyanígy,
+// kérdésenként a később módosított számít.
+// anchor = horgonymondat („Mire fogsz emlékezni a mai napból?”), szabad szöveg, nem kötelező.
 const Napi = (() => {
   const KEY = "hid-napi", PENDING = "hid-napi-pending", HIDE = "hid-napi-heti-rejtve", KEEP_DAYS = 14;
   const PLAN = [["igen", "igen"], ["reszben", "részben"], ["nem", "nem"]];
@@ -17,6 +21,7 @@ const Napi = (() => {
   const REPORT_HOUR = 16; // vasárnap ettől kész a heti anyag a Kiértékelőben
 
   const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   // Helyi dátum (nem UTC), hogy éjfél után se a tegnapi napra írjon.
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const today = () => ymd(new Date());
@@ -49,6 +54,49 @@ const Napi = (() => {
     render();
     schedule(d);
   }
+  // Szöveges válasz (horgonymondat): gépelés közben nem rajzoljuk újra a kártyát, hogy a
+  // billentyűzet ne csukódjon be; a felküldés a szokásos kis késleltetéssel megy.
+  function setText(f, raw) {
+    const d = curDay(), all = read(KEY, {});
+    const e = all[d] || { at: {} };
+    e[f] = String(raw).trim() ? String(raw).slice(0, 300) : null;
+    e.at = Object.assign({}, e.at, { [f]: Date.now() });
+    all[d] = e;
+    saveAll(all);
+    setPending(pending().concat([d]));
+    renderStatus();
+    schedule(d);
+  }
+
+  // ---------- a laptopon beírt válaszok visszaolvasása (daysync) ----------
+  let key = null, unsub = null, watching = null;
+  const logged = () => typeof Sync !== "undefined" && Sync.isLoggedIn();
+  const typing = () => { const a = document.activeElement; return a && a.dataset && a.dataset.napiText != null; };
+  function stop() { if (unsub) { unsub(); unsub = null; } watching = null; }
+  function watch() {
+    if (!key || !logged() || watching === Sync.uid()) return;
+    stop();
+    watching = Sync.uid();
+    unsub = Sync.db().collection("users").doc(Sync.uid()).collection("daysync").onSnapshot(async (snap) => {
+      const all = read(KEY, {});
+      let changed = false;
+      for (const ch of snap.docChanges()) {
+        if (ch.type === "removed") continue;
+        let r;
+        try { r = await HidCrypto.openObj(key, ch.doc.data().blob); } catch (e) { continue; } // sérült: kihagyjuk
+        const d = ch.doc.id, e = all[d] || { at: {} }, rat = (r && r.at) || {};
+        Object.keys(rat).forEach((f) => {
+          if (rat[f] > ((e.at && e.at[f]) || -1)) { e[f] = r[f] ?? null; e.at = Object.assign({}, e.at, { [f]: rat[f] }); changed = true; }
+        });
+        all[d] = e;
+      }
+      if (!changed) return;
+      saveAll(all);
+      if (!typing()) render();
+    }, () => { watching = null; });
+  }
+  function setKey(k) { key = k; if (k) watch(); else stop(); }
+  function onAuth(state) { if (state && state.loggedIn) watch(); else stop(); }
 
   // Felküldés: kis késleltetéssel (több gyors koppintás egy írás), sorban egymás után,
   // hogy egy régebbi állapot ne írhassa felül az újabbat.
@@ -94,6 +142,7 @@ const Napi = (() => {
   function render() {
     const el = $("#napi");
     if (!el) return;
+    if (typing()) return renderStatus(); // a horgonymondat gépelése közben ne csukódjon be a billentyűzet
     const d = curDay(), e = read(KEY, {})[d] || {};
     const has = (f, v) => (e[f] || []).includes(v);
     const opts = (f, list, isOn) => `<div class="opts">${list.map(([v, l]) => {
@@ -117,6 +166,7 @@ const Napi = (() => {
           ${has("areas", "tarsas") ? `<div class="q-sub">
             ${q("Társas: visz valamerre?", opts("irany", IRANY, one("irany")))}
             ${q("Mit vitt el sokat? <span>(nem kötelező)</span>", opts("cost", COST, many("cost")))}</div>` : ""}
+          ${q(`Mire fogsz emlékezni ${yest ? "a tegnapi" : "a mai"} napból?`, `<textarea class="anchor" data-napi-text="anchor" rows="2" maxlength="300" aria-label="Horgonymondat">${esc(e.anchor || "")}</textarea>`)}
           <div class="napi-status" id="napi-status"></div>
         </div>
       </section>`;
@@ -130,11 +180,19 @@ const Napi = (() => {
     if (b.dataset.napiDay != null) { yest = b.dataset.napiDay === "1"; render(); return; }
     set(b.dataset.napi, b.dataset.v);
   });
+  document.addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (t.dataset && t.dataset.napiText) setText(t.dataset.napiText, t.value);
+  });
+  // Gépelés után pótoljuk a közben kimaradt újrarajzolást (pl. a gépről érkezett válaszokat).
+  document.addEventListener("focusout", (ev) => {
+    if (ev.target.dataset && ev.target.dataset.napiText) setTimeout(() => { if (!typing()) render(); }, 0);
+  });
   // Ha az app egész nap nyitva marad, éjfél után a „Ma” már a következő nap legyen.
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); heti(); } });
-  window.addEventListener("online", flush);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { if (!typing()) render(); heti(); watch(); } });
+  window.addEventListener("online", () => { flush(); watch(); });
 
-  return { render, heti, flush };
+  return { render, heti, flush, setKey, onAuth };
 })();
 Napi.render();
 Napi.heti();
