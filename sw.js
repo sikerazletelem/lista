@@ -18,7 +18,7 @@
 // v14: a heti tervben a kiesett napok is látszanak (csak olvasható).
 // v15: horgonymondat a napi kártyán; a gépen beírt napi kártya visszajön a telefonra (daysync).
 // v16: visszatéréskor az élő kapcsolat újraindul, így a gépen beírtak újratöltés nélkül megjönnek.
-const CACHE = "hid-lista-v16";
+const CACHE = "hid-lista-v17";
 const FILES = ["./", "index.html", "style.css", "store.js", "hid-crypto.js", "sync.js", "napi.js", "hetiterv.js", "vasarlas.js", "firebase-config.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

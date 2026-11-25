@@ -11,6 +11,8 @@
   --c-blue: #3E7CB1;   --c-blue-tint: #EAF1F7;   --c-blue-text: #22405A;
   --c-purple: #A24B72; --c-purple-tint: #F7EBF0; --c-purple-text: #8A3B62;
   --c-indigo: #5A5FB8; --c-indigo-tint: #EEEEF9; --c-indigo-text: #3E4289;
+  --c-teal: #2A8494;   --c-teal-tint: #E6F2F4;   --c-teal-text: #1D5F6B;
+  --c-olive: #6F7D33;  --c-olive-tint: #F1F3E4;  --c-olive-text: #515C24;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -25,6 +27,8 @@
     --c-blue: #85B4DA;   --c-blue-tint: #16232F;   --c-blue-text: #ABCBE7;
     --c-purple: #D287AC; --c-purple-tint: #2E1D26; --c-purple-text: #E6ACC7;
     --c-indigo: #A3A7EC; --c-indigo-tint: #1E2036; --c-indigo-text: #C3C6F4;
+    --c-teal: #6CC1CE;   --c-teal-tint: #142B2F;   --c-teal-text: #98D5DE;
+    --c-olive: #B3C272;  --c-olive-tint: #252A14;  --c-olive-text: #CAD69A;
   }
 }
 

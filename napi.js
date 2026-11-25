@@ -13,7 +13,7 @@ const Napi = (() => {
   const PLAN = [["igen", "igen"], ["reszben", "részben"], ["nem", "nem"]];
   const TOOK = [["tarsas", "társas"], ["faradtsag", "fáradtság"], ["tuloras", "túlóra"], ["egyeb", "egyéb"]];
   const ENERGY = [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]];
-  const AREAS = [["mernoki", "Mérnöki"], ["ingatlanpiaci", "Ingatlan"], ["sport", "Sport"], ["nyelv", "Nyelv"], ["jelenlet", "Jelenlét"], ["tarsas", "Társas"]];
+  const AREAS = [["mernoki", "Mérnöki"], ["ingatlanpiaci", "Ingatlan"], ["sport", "Sport"], ["nyelv", "Nyelv"], ["jelenlet", "Jelenlét"], ["tarsas", "Társas"], ["hid", "Híd app"], ["fejlodes", "Fejlődés"]];
   const REST = [["pihenes", "Feltöltődtem"], ["dolgoztam", "Dolgoztam"], ["menekules", "Csak menekültem"]];
   const IRANY = [["igen", "igen, az irányomba"], ["jolesett", "csak jólesett"]];
   const COST = [["ido", "idő"], ["penz", "pénz"], ["fokusz", "fókusz"]];

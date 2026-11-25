@@ -96,6 +96,14 @@
     jelenlet: { label: "Jelenlét", c: "blue", icon: "sun" },
     tarsas: { label: "Társas", c: "purple", icon: "users" },
   };
+  // Új területek (2026-11-25): egyelőre csak gyűjtenek adatot. A napi kártyán és a heti anyag
+  // „Hová ment a hét” részében jelennek meg, de nincs heti céljuk, figyelmeztetésük, és az
+  // élet-kerékbe sem számítanak (előbb adat, aztán tervezés).
+  const EXTRA_AREAS = {
+    hid: { label: "Híd app", c: "teal" },
+    fejlodes: { label: "Fejlődés", c: "olive" },
+  };
+  const ALL_AREAS = { ...AREAS, ...EXTRA_AREAS };
   const PLAN_ANS = { igen: "igen", reszben: "részben", nem: "nem" };
   const TOOK = { tarsas: "társas", faradtsag: "fáradtság", tuloras: "túlóra", egyeb: "egyéb" };
   const IRANY = { igen: "igen, az irányomba", jolesett: "csak jólesett" };
@@ -564,7 +572,7 @@
   const daysBetween = (a, b) => Math.round((parseDay(b) - parseDay(a)) / 86400000);
 
   function statsFor(days) {
-    const areas = Object.fromEntries(Object.keys(AREAS).map((k) => [k, 0]));
+    const areas = Object.fromEntries(Object.keys(ALL_AREAS).map((k) => [k, 0]));
     const plan = { igen: 0, reszben: 0, nem: 0 }, took = [], rest = { pihenes: 0, dolgoztam: 0, menekules: 0 }, energy = [];
     const social = { n: 0, offPlan: 0, irany: { igen: 0, jolesett: 0 }, cost: { ido: 0, penz: 0, fokusz: 0 } };
     let filled = 0;
@@ -990,6 +998,10 @@
       const n = r.areas[k] || 0, t = r.targets[k] || 0;
       const w = t ? (Math.min(n / t, 1.5) / 1.5) * 100 : n ? 100 : 0;
       return `<div class="r-area"><span class="r-al">${a.label}</span><span class="r-bar"><i style="width:${w}%;background:var(--c-${a.c})"></i><b style="left:${100 / 1.5}%"></b></span><span class="font-data r-n">${n} / ${t}</span></div>`;
+    }).join("") + Object.entries(EXTRA_AREAS).filter(([k]) => k in r.areas).map(([k, a]) => {
+      // Heti cél nélkül: a sáv a hét 7 napjához mér, nincs tervvonal. Régi anyagban nincs ilyen sor.
+      const n = r.areas[k] || 0;
+      return `<div class="r-area"><span class="r-al">${a.label}</span><span class="r-bar"><i style="width:${(n / 7) * 100}%;background:var(--c-${a.c})"></i></span><span class="font-data r-n">${n} nap</span></div>`;
     }).join("");
     const p = r.plan, s = r.social;
     const took = r.took.length
@@ -1126,7 +1138,7 @@
         ${q("Ment a terv szerint az este?", Object.entries(PLAN_ANS).map(([v, l]) => btn("plan", v, l, ci.plan === v)).join(""))}
         ${ci.plan === "reszben" || ci.plan === "nem" ? q("Mi vitte el?", Object.entries(TOOK).map(([v, l]) => btn("took", v, l, has("took", v))).join("")) : ""}
         ${q("Energia ma <span class=\"small\">(1 = kimerült, 5 = tele)</span>", [1, 2, 3, 4, 5].map((v) => btn("energy", v, v, ci.energy === v, 'style="min-width:44px"')).join(""))}
-        ${q("Mire ment érdemi idő?", Object.entries(AREAS).map(([v, a]) => btn("areas", v, a.label, has("areas", v), `style="--c:var(--c-${a.c})"`)).join(""))}
+        ${q("Mire ment érdemi idő?", Object.entries(ALL_AREAS).map(([v, a]) => btn("areas", v, a.label, has("areas", v), `style="--c:var(--c-${a.c})"`)).join(""))}
         ${q("Napi állapot", Object.entries(REST).map(([v, r]) => btn("rest", v, r.label, ci.rest === v, `style="--c:var(--c-${r.c})"`)).join(""))}
         ${tarsas ? `<div class="q-sub">${q("Társas: visz valamerre?", Object.entries(IRANY).map(([v, l]) => btn("irany", v, l, ci.irany === v)).join(""))}
           ${q("Mit vitt el sokat? <span class=\"small\">(nem kötelező)</span>", Object.entries(COST).map(([v, l]) => btn("cost", v, l, has("cost", v))).join(""))}
@@ -1571,7 +1583,7 @@
       const d = addDays(today, -i);
       if (d < state.trackingStart || rnd() < 0.12) continue;
       const ok = rnd() > 0.3;
-      const areas = ok ? byDow[isoDow(d)] : rnd() > 0.5 ? ["tarsas"] : [];
+      const areas = (ok ? byDow[isoDow(d)] : rnd() > 0.5 ? ["tarsas"] : []).concat(rnd() > 0.7 ? ["hid"] : [], rnd() > 0.8 ? ["fejlodes"] : []);
       const e = { plan: ok ? "igen" : rnd() > 0.5 ? "reszben" : "nem", took: ok ? [] : [rnd() > 0.5 ? "tarsas" : "faradtsag"], energy: 2 + Math.floor(rnd() * 4),
         areas, rest: ["pihenes", "dolgoztam", "dolgoztam", "menekules"][Math.floor(rnd() * 4)], irany: areas.includes("tarsas") ? (rnd() > 0.5 ? "igen" : "jolesett") : null,
         cost: areas.includes("tarsas") && rnd() > 0.5 ? ["penz", "ido"] : [],
