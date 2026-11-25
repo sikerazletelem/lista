@@ -236,9 +236,41 @@ document.addEventListener("keydown", (e) => {
   });
 });
 
+// --- Automatikus heti tételek ---
+// A megadott nap és óra után, amikor először nyitod meg az appot, a tétel bekerül a blokk
+// tetejére. Hetente egyszer (helyi jelölő + egyedi azonosító), és csak WINDOW_DAYS napig
+// pótolja: ha egész hétvégén nem nyitod meg, a régi már nem jön elő. Ha az előző heti még
+// nyitott, nem tesz mellé újat. dow: 0 = vasárnap … 6 = szombat.
+const AUTO = [
+  { key: "kaja", block: "maganeleti", text: "Kaja rendelés", dow: 5, hour: 20 },
+  { key: "hetiterv", block: "maganeleti", text: "Heti tervezés", dow: 0, hour: 8 },
+];
+const AUTO_SEEN = "hid-auto-tetelek", WINDOW_DAYS = 3;
+const ymdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+let itemsLoaded = false;
+function autoItems() {
+  if (!itemsLoaded) return;
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem(AUTO_SEEN)) || {}; } catch (e) {}
+  const now = new Date();
+  AUTO.forEach((a) => {
+    const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() - a.dow + 7) % 7), a.hour);
+    if (at > now) at.setDate(at.getDate() - 7); // a legutóbbi, már elmúlt időpont
+    const occ = ymdLocal(at), id = `auto-${a.key}-${occ}`;
+    if (seen[a.key] >= occ) return;
+    seen[a.key] = occ;
+    if (now - at > WINDOW_DAYS * 86400000) return;
+    if (items.some((i) => i.id === id || (i.auto === a.key && !i.done && !i.deleted))) return;
+    const t = Date.now();
+    save({ id, block: a.block, text: a.text, auto: a.key, done: false, deleted: false, order: -t, updatedAt: t });
+  });
+  try { localStorage.setItem(AUTO_SEEN, JSON.stringify(seen)); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) autoItems(); });
+
 shell();
 renderAll();
-Store.all().then((all) => { items = all.map((i) => (i.order == null ? { ...i, order: -i.updatedAt } : i)); renderAll(); syncFlush(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
+Store.all().then((all) => { items = all.map((i) => (i.order == null ? { ...i, order: -i.updatedAt } : i)); itemsLoaded = true; autoItems(); renderAll(); syncFlush(); }).catch(() => setStatus("A helyi tár nem érhető el — a tételek nem maradnak meg."));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
