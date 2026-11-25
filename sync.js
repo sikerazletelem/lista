@@ -30,6 +30,18 @@ const Sync = (() => {
       if (!u) { localStorage.removeItem(PUBKEY_KEY); }
       onStatus(u ? { loggedIn: true, email: u.email } : { loggedIn: false });
     });
+    // A telefon a háttérben (lezárt képernyő, másik app) elveszítheti az élő kapcsolatot, és
+    // visszatéréskor csak sokára, vagy újratöltésig nem kapja meg a gépen beírtakat. Ezért
+    // visszatéréskor a kapcsolatot újraindítjuk: minden élő figyelés (napi kártya, vásárlás,
+    // heti terv) azonnal friss adatot kér.
+    let hiddenAt = 0;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      if (!hiddenAt || Date.now() - hiddenAt < 3000) return;
+      hiddenAt = 0;
+      db.disableNetwork().then(() => db.enableNetwork()).catch(() => {});
+    });
+    window.addEventListener("online", () => { db.enableNetwork().catch(() => {}); });
     return true;
   }
 
